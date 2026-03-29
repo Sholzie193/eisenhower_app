@@ -52,13 +52,13 @@ export default function TriageScreen() {
     <ScreenShell>
       <View style={styles.header}>
         <HeaderButton label="Back" icon="chevron-back" onPress={() => goBackOrFallback("/add")} />
-        <Text style={[styles.step, { color: theme.colors.textSoft }]}>Step 2 of 3</Text>
+        <Text style={[styles.step, { color: theme.colors.textSoft }]}>Manual lane</Text>
       </View>
 
       <View style={styles.titleBlock}>
-        <Text style={[styles.title, { color: theme.colors.text }]}>Score the decision.</Text>
+        <Text style={[styles.title, { color: theme.colors.text }]}>Tighten the signal.</Text>
         <Text style={[styles.subtitle, { color: theme.colors.textMuted }]}>
-          Six quick checks. The verdict updates live.
+          Only a few cues. The matrix read updates as you go.
         </Text>
       </View>
 
@@ -113,7 +113,7 @@ export default function TriageScreen() {
       <NeuCard style={styles.questionCard}>
         <View style={styles.questionHeader}>
           <Text style={[styles.questionTitle, { color: theme.colors.text }]}>Does it have a real deadline?</Text>
-          <Text style={[styles.questionHint, { color: theme.colors.textMuted }]}>Urgency starts here.</Text>
+          <Text style={[styles.questionHint, { color: theme.colors.textMuted }]}>A real deadline changes the shape fast.</Text>
         </View>
         <SegmentedControl
           value={answers.hasDeadline ? "yes" : "no"}
@@ -142,7 +142,7 @@ export default function TriageScreen() {
         <NeuCard style={styles.questionCard}>
           <View style={styles.questionHeader}>
             <Text style={[styles.questionTitle, { color: theme.colors.text }]}>How soon is it due?</Text>
-            <Text style={[styles.questionHint, { color: theme.colors.textMuted }]}>Pick the nearest honest window.</Text>
+          <Text style={[styles.questionHint, { color: theme.colors.textMuted }]}>Pick the nearest honest window.</Text>
           </View>
           <ChipGroup
             options={DUE_OPTIONS.filter((option) => option.value !== "noDeadline")}
@@ -163,7 +163,7 @@ export default function TriageScreen() {
       <NeuCard style={styles.questionCard}>
         <View style={styles.questionHeader}>
           <Text style={[styles.questionTitle, { color: theme.colors.text }]}>What does delay cost?</Text>
-          <Text style={[styles.questionHint, { color: theme.colors.textMuted }]}>Think consequence, not discomfort.</Text>
+          <Text style={[styles.questionHint, { color: theme.colors.textMuted }]}>Think consequence, not guilt.</Text>
         </View>
         <SegmentedControl<DelayImpact>
           value={answers.delayImpact}
@@ -180,7 +180,7 @@ export default function TriageScreen() {
       <NeuCard style={styles.questionCard}>
         <View style={styles.questionHeader}>
           <Text style={[styles.questionTitle, { color: theme.colors.text }]}>Which core areas does it touch?</Text>
-          <Text style={[styles.questionHint, { color: theme.colors.textMuted }]}>Select all that genuinely matter.</Text>
+          <Text style={[styles.questionHint, { color: theme.colors.textMuted }]}>Only select what truly changes the stakes.</Text>
         </View>
         <ChipGroup
           options={IMPACT_OPTIONS}
@@ -193,7 +193,7 @@ export default function TriageScreen() {
       <NeuCard style={styles.questionCard}>
         <View style={styles.questionHeader}>
           <Text style={[styles.questionTitle, { color: theme.colors.text }]}>Is it important or just loud?</Text>
-          <Text style={[styles.questionHint, { color: theme.colors.textMuted }]}>Separate signal from noise.</Text>
+          <Text style={[styles.questionHint, { color: theme.colors.textMuted }]}>Separate what matters from what only feels loud.</Text>
         </View>
         <SegmentedControl<ImportanceSignal>
           value={answers.importanceSignal}
@@ -211,7 +211,7 @@ export default function TriageScreen() {
       <NeuCard style={styles.questionCard}>
         <View style={styles.questionHeader}>
           <Text style={[styles.questionTitle, { color: theme.colors.text }]}>What is the smartest handling?</Text>
-          <Text style={[styles.questionHint, { color: theme.colors.textMuted }]}>Direct effort is not always the answer.</Text>
+          <Text style={[styles.questionHint, { color: theme.colors.textMuted }]}>Your effort is not always the right container.</Text>
         </View>
         <ChipGroup
           options={[
@@ -233,7 +233,7 @@ export default function TriageScreen() {
         />
       </NeuCard>
 
-      <NeuButton label="See verdict" onPress={() => router.push("/result")} />
+      <NeuButton label="See clearer read" onPress={() => router.push("/result")} />
     </ScreenShell>
   );
 }

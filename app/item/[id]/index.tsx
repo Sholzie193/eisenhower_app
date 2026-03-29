@@ -110,7 +110,7 @@ export default function ItemDetailScreen() {
         onPress={() => toggleComplete(item.id)}
       />
       <NeuButton
-        label="Retriage"
+        label="Refine manually"
         onPress={() => {
           startRetriage(item.id);
           router.push("/triage");

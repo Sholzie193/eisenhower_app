@@ -1,0 +1,426 @@
+import { IMPACT_AREA_LABELS } from "../constants/quadrants";
+import { evaluateTriage } from "./triage";
+import type {
+  ClarityAnalysis,
+  ClarityCandidate,
+  ClarityMode,
+  ClarityQuestion,
+  ClarityQuestionKind,
+  DueWindow,
+  ImpactArea,
+  ImportanceSignal,
+  TriageAnswers,
+} from "../types/decision";
+
+const FOG_PHRASES = [
+  "don't know",
+  "dont know",
+  "not sure",
+  "too many things",
+  "overwhelmed",
+  "brain dump",
+  "foggy",
+  "decide whether",
+  "should i",
+  "whether to",
+];
+
+const FILLER_PREFIXES = [
+  /^i need to\s+/i,
+  /^need to\s+/i,
+  /^i should\s+/i,
+  /^should i\s+/i,
+  /^trying to decide whether to\s+/i,
+  /^need to decide whether to\s+/i,
+  /^i don't know whether to\s+/i,
+  /^i dont know whether to\s+/i,
+  /^whether to\s+/i,
+];
+
+const AREA_KEYWORDS: Record<ImpactArea, RegExp[]> = {
+  money: [/\bbill\b/i, /\binvoice\b/i, /\bbudget\b/i, /\bpayment\b/i, /\bcash\b/i, /\bmoney\b/i, /\brent\b/i],
+  health: [/\bdoctor\b/i, /\bhealth\b/i, /\bsleep\b/i, /\brest\b/i, /\btherapy\b/i, /\bworkout\b/i, /\bexercise\b/i],
+  safety: [/\bsafety\b/i, /\brepair\b/i, /\bleak\b/i, /\bdanger\b/i, /\bsecurity\b/i],
+  work: [/\bclient\b/i, /\bproposal\b/i, /\bwebsite\b/i, /\boutreach\b/i, /\bemail\b/i, /\badmin\b/i, /\bmeeting\b/i, /\bwork\b/i],
+  housing: [/\blandlord\b/i, /\blease\b/i, /\bapartment\b/i, /\bhome\b/i, /\bhousing\b/i, /\brent\b/i],
+  longTermGoals: [/\bportfolio\b/i, /\bwebsite\b/i, /\bstrategy\b/i, /\bproposal\b/i, /\blearn\b/i, /\bplan\b/i, /\bgoal\b/i],
+  relationships: [/\bfriend\b/i, /\bfamily\b/i, /\bpartner\b/i, /\bcall\b/i, /\bfollow up\b/i, /\bcheck in\b/i],
+  reputation: [/\bclient\b/i, /\boutreach\b/i, /\bfollow up\b/i, /\bproposal\b/i, /\bpublic\b/i, /\bship\b/i],
+};
+
+const KEYWORDS = {
+  urgentToday: [/\btoday\b/i, /\btonight\b/i, /\basap\b/i, /\burgent\b/i, /\bright away\b/i, /\bimmediately\b/i, /\beod\b/i, /\bend of day\b/i],
+  urgentTomorrow: [/\btomorrow\b/i, /\bfirst thing\b/i],
+  urgentWeek: [/\bthis week\b/i, /\bfriday\b/i, /\bmonday\b/i, /\btuesday\b/i, /\bwednesday\b/i, /\bthursday\b/i, /\bweekend\b/i, /\bsoon\b/i],
+  hardDeadline: [/\bdeadline\b/i, /\bdue\b/i, /\bbefore\b/i, /\bby\b/i],
+  severeDelay: [/\blandlord\b/i, /\brent\b/i, /\bclient\b/i, /\bproposal\b/i, /\binvoice\b/i, /\bhealth\b/i, /\bdoctor\b/i, /\bpay\b/i],
+  disruptiveDelay: [/\bwebsite\b/i, /\boutreach\b/i, /\badmin\b/i, /\bemail\b/i, /\bmeeting\b/i, /\bdocs?\b/i, /\bcall\b/i],
+  relief: [/\binbox\b/i, /\badmin\b/i, /\bemail\b/i, /\blandlord\b/i, /\bcall\b/i, /\bdocs?\b/i, /\breply\b/i, /\bdecision\b/i, /\brest\b/i],
+  longTerm: [/\bproposal\b/i, /\bwebsite\b/i, /\bhealth\b/i, /\bexercise\b/i, /\bstrategy\b/i, /\bgoal\b/i, /\bplan\b/i],
+  easyToUndo: [/\bcall\b/i, /\bemail\b/i, /\bfollow up\b/i, /\bschedule\b/i, /\brest\b/i, /\bbook\b/i],
+  mostlyNoise: [/\bscreenshots?\b/i, /\breorgani[sz]e\b/i, /\btidy\b/i, /\bdoomscroll\b/i, /\blater maybe\b/i],
+};
+
+const clamp = (value: number, min = 0, max = 4) => Math.max(min, Math.min(max, Number(value.toFixed(2))));
+
+const hasAnyMatch = (value: string, expressions: RegExp[]) => expressions.some((expression) => expression.test(value));
+
+const dedupe = (values: string[]) => {
+  const seen = new Set<string>();
+  return values.filter((value) => {
+    const key = value.toLowerCase();
+    if (!key || seen.has(key)) {
+      return false;
+    }
+
+    seen.add(key);
+    return true;
+  });
+};
+
+const cleanCandidate = (value: string) => {
+  const withoutBullets = value.replace(/^[\s\-*•\d.)]+/, "").trim();
+  const withoutPrefixes = FILLER_PREFIXES.reduce(
+    (currentValue, expression) => currentValue.replace(expression, ""),
+    withoutBullets
+  );
+
+  return withoutPrefixes.replace(/\s+/g, " ").trim();
+};
+
+const extractCandidateTexts = (rawInput: string) => {
+  const normalized = rawInput
+    .replace(/[•·]/g, "\n")
+    .replace(/\s+(?:vs\.?|versus)\s+/gi, ", ")
+    .replace(/\s+\bor\b\s+/gi, ", ")
+    .replace(/\s+\band\b\s+/gi, ", ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const candidates = dedupe(
+    normalized
+      .split(/[\n,;]+/)
+      .map(cleanCandidate)
+      .filter((value) => value.length > 2)
+  );
+
+  return candidates.length ? candidates : [cleanCandidate(normalized)];
+};
+
+const getDueWindow = (text: string): { hasDeadline: boolean; dueWindow: DueWindow } => {
+  if (hasAnyMatch(text, KEYWORDS.urgentToday)) {
+    return { hasDeadline: true, dueWindow: "today" };
+  }
+
+  if (hasAnyMatch(text, KEYWORDS.urgentTomorrow)) {
+    return { hasDeadline: true, dueWindow: "tomorrow" };
+  }
+
+  if (hasAnyMatch(text, KEYWORDS.urgentWeek)) {
+    return { hasDeadline: true, dueWindow: "thisWeek" };
+  }
+
+  if (hasAnyMatch(text, KEYWORDS.hardDeadline)) {
+    return { hasDeadline: true, dueWindow: "later" };
+  }
+
+  return { hasDeadline: false, dueWindow: "noDeadline" };
+};
+
+const inferImpactAreas = (text: string) =>
+  (Object.keys(AREA_KEYWORDS) as ImpactArea[]).filter((area) => hasAnyMatch(text, AREA_KEYWORDS[area]));
+
+const inferImportanceSignal = (text: string, impactAreas: ImpactArea[]): ImportanceSignal => {
+  if (hasAnyMatch(text, KEYWORDS.mostlyNoise)) {
+    return "mostlyNoise";
+  }
+
+  if (
+    impactAreas.includes("health") ||
+    impactAreas.includes("housing") ||
+    impactAreas.includes("money") ||
+    impactAreas.includes("longTermGoals") ||
+    /client|proposal|landlord|doctor|rest/i.test(text)
+  ) {
+    return "meaningful";
+  }
+
+  return impactAreas.length > 1 ? "meaningful" : "unclear";
+};
+
+const inferHandlingChoice = (text: string) => {
+  if (/delegate|handoff|assign|ask .* to|send to/i.test(text)) {
+    return "delegate" as const;
+  }
+
+  if (/automate|template|system|recurring|shortcut/i.test(text)) {
+    return "automate" as const;
+  }
+
+  if (/ignore|skip|let it go/i.test(text) || hasAnyMatch(text, KEYWORDS.mostlyNoise)) {
+    return "ignore" as const;
+  }
+
+  if (/trim|reduce|simplify/i.test(text)) {
+    return "reduce" as const;
+  }
+
+  return "direct" as const;
+};
+
+const inferDelayImpact = (text: string, impactAreas: ImpactArea[]) => {
+  if (hasAnyMatch(text, KEYWORDS.severeDelay) || impactAreas.includes("health") || impactAreas.includes("housing")) {
+    return "severe" as const;
+  }
+
+  if (hasAnyMatch(text, KEYWORDS.disruptiveDelay) || impactAreas.includes("longTermGoals")) {
+    return "disruptive" as const;
+  }
+
+  if (/reply|call|book|rest|admin|follow up/i.test(text)) {
+    return "annoying" as const;
+  }
+
+  return "none" as const;
+};
+
+const getSuggestedCategory = (impactAreas: ImpactArea[]) => {
+  const primaryArea = impactAreas[0];
+  return primaryArea ? IMPACT_AREA_LABELS[primaryArea] : "";
+};
+
+const getMentalReliefScore = (text: string) => {
+  let score = hasAnyMatch(text, KEYWORDS.relief) ? 2.2 : 1;
+
+  if (/rest|sleep|break/i.test(text)) {
+    score += 0.9;
+  }
+
+  if (/landlord|reply|admin|docs?/i.test(text)) {
+    score += 0.5;
+  }
+
+  return clamp(score);
+};
+
+const getLongTermScore = (text: string, impactAreas: ImpactArea[]) => {
+  let score = hasAnyMatch(text, KEYWORDS.longTerm) ? 2.4 : 0.8;
+  if (impactAreas.includes("longTermGoals") || impactAreas.includes("health")) {
+    score += 0.8;
+  }
+
+  return clamp(score);
+};
+
+const getReversibilityScore = (text: string) => {
+  let score = hasAnyMatch(text, KEYWORDS.easyToUndo) ? 2.4 : 1.2;
+  if (/proposal|website|major|rebuild/i.test(text)) {
+    score -= 0.6;
+  }
+
+  return clamp(score);
+};
+
+const buildCalmingWhy = (candidate: Pick<ClarityCandidate, "triageResult" | "reliefScore">) => {
+  const { triageResult, reliefScore } = candidate;
+
+  if (triageResult.quadrant === "doNow") {
+    return reliefScore >= 2.5
+      ? "This carries real pressure and should noticeably lighten the mental load once it moves."
+      : "This has the clearest combination of urgency and importance right now.";
+  }
+
+  if (triageResult.quadrant === "schedule") {
+    return "This matters, but it does not need to crowd the next few minutes.";
+  }
+
+  if (triageResult.quadrant === "delegate") {
+    return "This feels loud, but it does not need your full attention first.";
+  }
+
+  return "This can stay lighter for now without creating much downside.";
+};
+
+const buildCandidate = (sourceText: string, index: number): ClarityCandidate => {
+  const normalizedText = sourceText.toLowerCase();
+  const impactAreas = inferImpactAreas(normalizedText);
+  const due = getDueWindow(normalizedText);
+  const triageAnswers: TriageAnswers = {
+    hasDeadline: due.hasDeadline,
+    dueWindow: due.dueWindow,
+    delayImpact: inferDelayImpact(normalizedText, impactAreas),
+    impactAreas,
+    importanceSignal: inferImportanceSignal(normalizedText, impactAreas),
+    handlingChoice: inferHandlingChoice(normalizedText),
+  };
+  const triageResult = evaluateTriage(triageAnswers);
+  const delayCostScore =
+    triageAnswers.delayImpact === "severe"
+      ? 3.7
+      : triageAnswers.delayImpact === "disruptive"
+        ? 2.7
+        : triageAnswers.delayImpact === "annoying"
+          ? 1.6
+          : 0.6;
+  const reliefScore = getMentalReliefScore(normalizedText);
+  const longTermScore = getLongTermScore(normalizedText, impactAreas);
+  const reversibilityScore = getReversibilityScore(normalizedText);
+  const matrixScore = triageResult.urgencyScore * 0.6 + triageResult.importanceScore * 0.85;
+  const compositeScore = Number(
+    (matrixScore + delayCostScore * 0.72 + reliefScore * 0.76 + longTermScore * 0.62 + reversibilityScore * 0.28).toFixed(2)
+  );
+
+  const title = sourceText.charAt(0).toUpperCase() + sourceText.slice(1);
+
+  const candidate: ClarityCandidate = {
+    id: `candidate-${index + 1}`,
+    title,
+    sourceText: title,
+    category: getSuggestedCategory(impactAreas),
+    triageAnswers,
+    triageResult,
+    delayCostScore,
+    longTermScore,
+    reliefScore,
+    reversibilityScore,
+    compositeScore,
+    calmingWhy: "",
+  };
+
+  return {
+    ...candidate,
+    calmingWhy: buildCalmingWhy(candidate),
+  };
+};
+
+const sortCandidates = (candidates: ClarityCandidate[]) =>
+  [...candidates].sort((left, right) => right.compositeScore - left.compositeScore);
+
+const getQuestionKind = (topCandidates: ClarityCandidate[]): ClarityQuestionKind => {
+  const [first, second] = topCandidates;
+
+  if (first.triageAnswers.hasDeadline || second.triageAnswers.hasDeadline) {
+    return "deadline";
+  }
+
+  if (Math.abs(first.reliefScore - second.reliefScore) <= 0.45) {
+    return "relief";
+  }
+
+  if (Math.abs(first.longTermScore - second.longTermScore) <= 0.45) {
+    return "longTerm";
+  }
+
+  return "downside";
+};
+
+const getQuestionPrompt = (kind: ClarityQuestionKind) => {
+  switch (kind) {
+    case "deadline":
+      return "Which one has a real deadline first?";
+    case "relief":
+      return "Which one would create the most relief if handled?";
+    case "longTerm":
+      return "Which one matters most long term?";
+    case "downside":
+    default:
+      return "Which one has the biggest downside if delayed?";
+  }
+};
+
+const getSummary = (mode: ClarityMode, candidateCount: number, narrowedFromCount?: number) => {
+  if (mode === "single") {
+    return "One thing came through clearly, so the app kept the answer direct.";
+  }
+
+  if (mode === "compare") {
+    return "This looks like a real choice between a few options, so the app ranked the clearest move first.";
+  }
+
+  if (narrowedFromCount && narrowedFromCount > candidateCount) {
+    return `The input looked crowded, so the app narrowed ${narrowedFromCount} possibilities down to the few that matter most right now.`;
+  }
+
+  return "The input looked a little foggy, so the app pulled out the likely options before making a calmer recommendation.";
+};
+
+const finalizeAnalysis = (
+  rawInput: string,
+  mode: ClarityMode,
+  candidates: ClarityCandidate[],
+  narrowedFromCount?: number,
+  selectedId?: string
+): ClarityAnalysis => {
+  const sortedCandidates = sortCandidates(candidates);
+  const topCandidates = sortedCandidates.slice(0, 2);
+  const scoreGap =
+    topCandidates.length === 2 ? topCandidates[0].compositeScore - topCandidates[1].compositeScore : 9;
+  const shouldAskQuestion =
+    !selectedId && mode !== "single" && topCandidates.length === 2 && scoreGap < 0.95;
+
+  const question: ClarityQuestion | null = shouldAskQuestion
+    ? {
+        kind: getQuestionKind(topCandidates),
+        prompt: getQuestionPrompt(getQuestionKind(topCandidates)),
+        candidateIds: topCandidates.map((candidate) => candidate.id),
+      }
+    : null;
+
+  return {
+    rawInput,
+    mode,
+    summary: getSummary(mode, sortedCandidates.length, narrowedFromCount),
+    firstMove: sortedCandidates[0],
+    candidates: sortedCandidates,
+    waiting: sortedCandidates.slice(1),
+    question,
+    narrowedFromCount,
+  };
+};
+
+export const analyzeClarityInput = (rawInput: string): ClarityAnalysis => {
+  const normalizedInput = rawInput.replace(/\s+/g, " ").trim();
+  const extractedCandidates = extractCandidateTexts(rawInput);
+  const lowerInput = normalizedInput.toLowerCase();
+  const containsFogLanguage = FOG_PHRASES.some((phrase) => lowerInput.includes(phrase));
+  const isParagraphLike = normalizedInput.split(/\s+/).length > 18 || /[.?!]/.test(normalizedInput);
+  const narrowedCandidates = extractedCandidates.slice(0, 6);
+  const builtCandidates = narrowedCandidates.map(buildCandidate);
+  const sortedCandidates = sortCandidates(builtCandidates);
+  const compareCandidates = sortedCandidates.slice(0, Math.min(sortedCandidates.length, 4));
+
+  const mode: ClarityMode =
+    compareCandidates.length <= 1
+      ? isParagraphLike || containsFogLanguage
+        ? "fog"
+        : "single"
+      : compareCandidates.length <= 4 && !isParagraphLike && !containsFogLanguage
+        ? "compare"
+        : "fog";
+
+  return finalizeAnalysis(
+    normalizedInput,
+    mode,
+    compareCandidates,
+    extractedCandidates.length > compareCandidates.length ? extractedCandidates.length : undefined
+  );
+};
+
+export const answerClarityQuestion = (
+  analysis: ClarityAnalysis,
+  selectedCandidateId: string
+): ClarityAnalysis => {
+  const boostedCandidates = analysis.candidates.map((candidate) =>
+    candidate.id === selectedCandidateId
+      ? { ...candidate, compositeScore: Number((candidate.compositeScore + 1.45).toFixed(2)) }
+      : candidate
+  );
+
+  return finalizeAnalysis(
+    analysis.rawInput,
+    analysis.mode,
+    boostedCandidates,
+    analysis.narrowedFromCount,
+    selectedCandidateId
+  );
+};

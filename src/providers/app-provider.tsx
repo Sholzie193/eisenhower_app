@@ -1,22 +1,35 @@
 import { createContext, useContext, useEffect, useRef, useState, type PropsWithChildren } from "react";
 import { sampleItems } from "../constants/sampleData";
 import { QUADRANT_META } from "../constants/quadrants";
+import { analyzeClarityInput, answerClarityQuestion as answerClarityQuestionLogic } from "../logic/clarity";
 import { evaluateTriage, getQuadrantGuidance } from "../logic/triage";
 import { DEFAULT_TRIAGE_ANSWERS } from "../logic/triageConfig";
 import { storage } from "../storage/storage";
 import { triggerSuccessHaptic } from "../utils/haptics";
 import { createId } from "../utils/id";
-import type { DecisionItem, DraftDecision, Quadrant, TriageAnswers, TriageResult } from "../types/decision";
+import type {
+  ClarityAnalysis,
+  ClarityCandidate,
+  DecisionItem,
+  DraftDecision,
+  Quadrant,
+  TriageResult,
+} from "../types/decision";
 
 interface AppContextValue {
   items: DecisionItem[];
   hydrated: boolean;
   draft: DraftDecision | null;
+  claritySession: ClarityAnalysis | null;
   introSeen: boolean;
   startDraft: (draft?: Partial<DraftDecision>) => void;
   startRetriage: (itemId: string) => void;
   updateDraft: (patch: Partial<DraftDecision>) => void;
   clearDraft: () => void;
+  runClarity: (rawInput: string) => ClarityAnalysis;
+  answerClarityQuestion: (candidateId: string) => void;
+  clearClarity: () => void;
+  saveClarityCandidate: (candidate: ClarityCandidate, rawInput?: string) => string;
   saveDraftResult: (result: TriageResult) => string | null;
   updateItemBasics: (id: string, patch: Pick<DecisionItem, "title" | "notes" | "category">) => void;
   toggleComplete: (id: string) => void;
@@ -42,6 +55,7 @@ const normalizeDraft = (draft?: Partial<DraftDecision>): DraftDecision => ({
 export const AppProvider = ({ children }: PropsWithChildren) => {
   const [items, setItems] = useState<DecisionItem[]>([]);
   const [draft, setDraft] = useState<DraftDecision | null>(null);
+  const [claritySession, setClaritySession] = useState<ClarityAnalysis | null>(null);
   const [hydrated, setHydrated] = useState(false);
   const [introSeen, setIntroSeen] = useState(false);
   const itemsRef = useRef<DecisionItem[]>([]);
@@ -93,6 +107,7 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
   }, [hydrated, items]);
 
   const startDraft = (nextDraft?: Partial<DraftDecision>) => {
+    setClaritySession(null);
     setDraft(normalizeDraft(nextDraft));
   };
 
@@ -128,6 +143,69 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
   };
 
   const clearDraft = () => setDraft(null);
+  const clearClarity = () => setClaritySession(null);
+
+  const persistItem = (
+    nextItem: Pick<
+      DecisionItem,
+      | "title"
+      | "notes"
+      | "category"
+      | "urgencyScore"
+      | "importanceScore"
+      | "quadrant"
+      | "triageAnswers"
+      | "recommendation"
+      | "nextStep"
+      | "explanation"
+    >
+  ) => {
+    const now = new Date().toISOString();
+    const newItem: DecisionItem = {
+      id: createId(),
+      createdAt: now,
+      updatedAt: now,
+      completed: false,
+      ...nextItem,
+    };
+
+    const nextItems = [newItem, ...itemsRef.current];
+    itemsRef.current = nextItems;
+    setItems(nextItems);
+    triggerSuccessHaptic();
+    return newItem.id;
+  };
+
+  const runClarity = (rawInput: string) => {
+    setDraft(null);
+    const nextSession = analyzeClarityInput(rawInput);
+    setClaritySession(nextSession);
+    return nextSession;
+  };
+
+  const answerClarityQuestion = (candidateId: string) => {
+    setClaritySession((currentSession) =>
+      currentSession ? answerClarityQuestionLogic(currentSession, candidateId) : currentSession
+    );
+  };
+
+  const saveClarityCandidate = (candidate: ClarityCandidate, rawInput?: string) => {
+    return persistItem({
+      title: candidate.title,
+      notes:
+        rawInput && rawInput.trim().toLowerCase() !== candidate.title.trim().toLowerCase()
+          ? rawInput.trim()
+          : "",
+      category: candidate.category,
+      urgencyScore: candidate.triageResult.urgencyScore,
+      importanceScore: candidate.triageResult.importanceScore,
+      quadrant: candidate.triageResult.quadrant,
+      triageAnswers: candidate.triageAnswers,
+      recommendation: candidate.triageResult.recommendation,
+      nextStep: candidate.triageResult.nextStep,
+      explanation: candidate.triageResult.explanation,
+    });
+  };
 
   const saveDraftResult = (result: TriageResult) => {
     if (!draft) {
@@ -164,13 +242,10 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
       return draft.editingId;
     }
 
-    const newItem: DecisionItem = {
-      id: createId(),
+    const newItemId = persistItem({
       title: draft.title.trim(),
       notes: draft.notes.trim(),
       category: draft.category.trim(),
-      createdAt: now,
-      updatedAt: now,
       urgencyScore: result.urgencyScore,
       importanceScore: result.importanceScore,
       quadrant: result.quadrant,
@@ -178,16 +253,9 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
       recommendation: result.recommendation,
       nextStep: result.nextStep,
       explanation: result.explanation,
-      completed: false,
-    };
-
-    const nextItems = [newItem, ...currentItems];
-    itemsRef.current = nextItems;
-    setItems(nextItems);
-
-    triggerSuccessHaptic();
+    });
     clearDraft();
-    return newItem.id;
+    return newItemId;
   };
 
   const updateItemBasics = (id: string, patch: Pick<DecisionItem, "title" | "notes" | "category">) => {
@@ -253,11 +321,16 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
         items,
         hydrated,
         draft,
+        claritySession,
         introSeen,
         startDraft,
         startRetriage,
         updateDraft,
         clearDraft,
+        runClarity,
+        answerClarityQuestion,
+        clearClarity,
+        saveClarityCandidate,
         saveDraftResult,
         updateItemBasics,
         toggleComplete,

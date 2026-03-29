@@ -32,13 +32,13 @@ export default function AddScreen() {
     <ScreenShell>
       <View style={styles.header}>
         <HeaderButton label="Back" icon="chevron-back" onPress={() => goBackOrFallback("/")} />
-        <Text style={[styles.step, { color: theme.colors.textSoft }]}>Step 1 of 3</Text>
+        <Text style={[styles.step, { color: theme.colors.textSoft }]}>Manual lane</Text>
       </View>
 
       <View style={styles.titleBlock}>
-        <Text style={[styles.title, { color: theme.colors.text }]}>Capture the decision.</Text>
+        <Text style={[styles.title, { color: theme.colors.text }]}>Add a fuller read.</Text>
         <Text style={[styles.subtitle, { color: theme.colors.textMuted }]}>
-          Start with the title. Add context only if it helps.
+          Use this only when the quick clarity pass is not enough.
         </Text>
       </View>
 
@@ -69,7 +69,7 @@ export default function AddScreen() {
       </NeuCard>
 
       <NeuButton
-        label="Continue"
+        label="Continue to signals"
         disabled={!workingDraft.title.trim()}
         onPress={() => router.push("/triage")}
       />

@@ -10,7 +10,7 @@ import { triggerSelectionHaptic } from "../utils/haptics";
 export const APP_BOTTOM_NAV_HEIGHT = 78;
 export const APP_BOTTOM_NAV_MARGIN = 8;
 
-type NavKey = "dashboard" | "capture" | "triage" | "result";
+type NavKey = "clarity" | "manual" | "result";
 
 interface NavItem {
   key: NavKey;
@@ -21,42 +21,38 @@ interface NavItem {
 }
 
 const getActiveKey = (pathname: string): NavKey => {
-  if (pathname === "/add" || pathname.endsWith("/edit")) {
-    return "capture";
-  }
-
-  if (pathname === "/triage") {
-    return "triage";
+  if (pathname === "/add" || pathname === "/triage" || pathname.endsWith("/edit")) {
+    return "manual";
   }
 
   if (pathname === "/result") {
     return "result";
   }
 
-  return "dashboard";
+  return "clarity";
 };
 
 export const AppBottomNav = () => {
   const pathname = usePathname();
   const insets = useSafeAreaInsets();
-  const { draft, startDraft } = useAppData();
+  const { claritySession, draft, startDraft } = useAppData();
   const { theme } = useAppTheme();
 
   const activeKey = getActiveKey(pathname);
-  const hasDraft = Boolean(draft);
+  const hasResult = Boolean(draft || claritySession);
 
   const items: NavItem[] = [
     {
-      key: "dashboard",
-      label: "Home",
-      icon: "grid-outline",
+      key: "clarity",
+      label: "Clarity",
+      icon: "sparkles-outline",
       enabled: true,
       onPress: () => router.navigate("/"),
     },
     {
-      key: "capture",
-      label: "Capture",
-      icon: "add-circle-outline",
+      key: "manual",
+      label: "Manual",
+      icon: "options-outline",
       enabled: true,
       onPress: () => {
         if (!draft || pathname.startsWith("/item/")) {
@@ -66,17 +62,10 @@ export const AppBottomNav = () => {
       },
     },
     {
-      key: "triage",
-      label: "Triage",
-      icon: "swap-horizontal-outline",
-      enabled: hasDraft,
-      onPress: () => router.navigate("/triage"),
-    },
-    {
       key: "result",
-      label: "Result",
-      icon: "navigate-outline",
-      enabled: hasDraft,
+      label: "Read",
+      icon: "compass-outline",
+      enabled: hasResult,
       onPress: () => router.navigate("/result"),
     },
   ];

@@ -58,3 +58,39 @@ export interface TriageResult {
   urgencyReasons: string[];
   importanceReasons: string[];
 }
+
+export type ClarityMode = "single" | "compare" | "fog";
+export type ClarityQuestionKind = "deadline" | "relief" | "downside" | "longTerm";
+
+export interface ClarityCandidate {
+  id: string;
+  title: string;
+  sourceText: string;
+  category: string;
+  triageAnswers: TriageAnswers;
+  triageResult: TriageResult;
+  delayCostScore: number;
+  longTermScore: number;
+  reliefScore: number;
+  reversibilityScore: number;
+  compositeScore: number;
+  calmingWhy: string;
+}
+
+export interface ClarityQuestion {
+  kind: ClarityQuestionKind;
+  prompt: string;
+  candidateIds: string[];
+  selectedId?: string;
+}
+
+export interface ClarityAnalysis {
+  rawInput: string;
+  mode: ClarityMode;
+  summary: string;
+  firstMove: ClarityCandidate;
+  candidates: ClarityCandidate[];
+  waiting: ClarityCandidate[];
+  question: ClarityQuestion | null;
+  narrowedFromCount?: number;
+}

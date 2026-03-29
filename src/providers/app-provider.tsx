@@ -1,0 +1,282 @@
+import { createContext, useContext, useEffect, useRef, useState, type PropsWithChildren } from "react";
+import { sampleItems } from "../constants/sampleData";
+import { QUADRANT_META } from "../constants/quadrants";
+import { evaluateTriage, getQuadrantGuidance } from "../logic/triage";
+import { DEFAULT_TRIAGE_ANSWERS } from "../logic/triageConfig";
+import { storage } from "../storage/storage";
+import { triggerSuccessHaptic } from "../utils/haptics";
+import { createId } from "../utils/id";
+import type { DecisionItem, DraftDecision, Quadrant, TriageAnswers, TriageResult } from "../types/decision";
+
+interface AppContextValue {
+  items: DecisionItem[];
+  hydrated: boolean;
+  draft: DraftDecision | null;
+  introSeen: boolean;
+  startDraft: (draft?: Partial<DraftDecision>) => void;
+  startRetriage: (itemId: string) => void;
+  updateDraft: (patch: Partial<DraftDecision>) => void;
+  clearDraft: () => void;
+  saveDraftResult: (result: TriageResult) => string | null;
+  updateItemBasics: (id: string, patch: Pick<DecisionItem, "title" | "notes" | "category">) => void;
+  toggleComplete: (id: string) => void;
+  deleteItem: (id: string) => void;
+  moveQuadrant: (id: string, quadrant: Quadrant) => void;
+  dismissIntro: () => void;
+}
+
+const AppContext = createContext<AppContextValue | null>(null);
+
+const normalizeDraft = (draft?: Partial<DraftDecision>): DraftDecision => ({
+  editingId: draft?.editingId,
+  title: draft?.title ?? "",
+  notes: draft?.notes ?? "",
+  category: draft?.category ?? "",
+  triageAnswers: {
+    ...DEFAULT_TRIAGE_ANSWERS,
+    ...draft?.triageAnswers,
+    impactAreas: draft?.triageAnswers?.impactAreas ?? [],
+  },
+});
+
+export const AppProvider = ({ children }: PropsWithChildren) => {
+  const [items, setItems] = useState<DecisionItem[]>([]);
+  const [draft, setDraft] = useState<DraftDecision | null>(null);
+  const [hydrated, setHydrated] = useState(false);
+  const [introSeen, setIntroSeen] = useState(false);
+  const itemsRef = useRef<DecisionItem[]>([]);
+  const commitItems = (updater: (currentItems: DecisionItem[]) => DecisionItem[]) => {
+    setItems((currentItems) => {
+      const nextItems = updater(currentItems);
+      itemsRef.current = nextItems;
+      return nextItems;
+    });
+  };
+
+  useEffect(() => {
+    const boot = async () => {
+      const [storedItems, storedIntroSeen] = await Promise.all([
+        storage.loadItems(),
+        storage.loadIntroSeen(),
+      ]);
+
+      if (storedItems.length) {
+        itemsRef.current = storedItems;
+        setItems(storedItems);
+      } else {
+        itemsRef.current = sampleItems;
+        setItems(sampleItems);
+        storage.saveItems(sampleItems).catch(() => undefined);
+      }
+
+      setIntroSeen(storedIntroSeen);
+      setHydrated(true);
+    };
+
+    boot().catch(() => {
+      itemsRef.current = sampleItems;
+      setItems(sampleItems);
+      setHydrated(true);
+    });
+  }, []);
+
+  useEffect(() => {
+    itemsRef.current = items;
+  }, [items]);
+
+  useEffect(() => {
+    if (!hydrated) {
+      return;
+    }
+
+    storage.saveItems(items).catch(() => undefined);
+  }, [hydrated, items]);
+
+  const startDraft = (nextDraft?: Partial<DraftDecision>) => {
+    setDraft(normalizeDraft(nextDraft));
+  };
+
+  const startRetriage = (itemId: string) => {
+    const existing = items.find((item) => item.id === itemId);
+    if (!existing) {
+      return;
+    }
+
+    setDraft(
+      normalizeDraft({
+        editingId: existing.id,
+        title: existing.title,
+        notes: existing.notes,
+        category: existing.category,
+        triageAnswers: existing.triageAnswers,
+      })
+    );
+  };
+
+  const updateDraft = (patch: Partial<DraftDecision>) => {
+    setDraft((currentDraft) => {
+      const baseDraft = currentDraft ?? normalizeDraft();
+
+      return normalizeDraft({
+        ...baseDraft,
+        ...patch,
+        triageAnswers: patch.triageAnswers
+          ? { ...baseDraft.triageAnswers, ...patch.triageAnswers }
+          : baseDraft.triageAnswers,
+      });
+    });
+  };
+
+  const clearDraft = () => setDraft(null);
+
+  const saveDraftResult = (result: TriageResult) => {
+    if (!draft) {
+      return null;
+    }
+
+    const now = new Date().toISOString();
+    const currentItems = itemsRef.current;
+
+    if (draft.editingId) {
+      const nextItems = currentItems.map((item) =>
+        item.id === draft.editingId
+          ? {
+              ...item,
+              title: draft.title.trim(),
+              notes: draft.notes.trim(),
+              category: draft.category.trim(),
+              updatedAt: now,
+              urgencyScore: result.urgencyScore,
+              importanceScore: result.importanceScore,
+              quadrant: result.quadrant,
+              triageAnswers: draft.triageAnswers,
+              recommendation: result.recommendation,
+              nextStep: result.nextStep,
+              explanation: result.explanation,
+            }
+          : item
+      );
+
+      itemsRef.current = nextItems;
+      setItems(nextItems);
+      triggerSuccessHaptic();
+      clearDraft();
+      return draft.editingId;
+    }
+
+    const newItem: DecisionItem = {
+      id: createId(),
+      title: draft.title.trim(),
+      notes: draft.notes.trim(),
+      category: draft.category.trim(),
+      createdAt: now,
+      updatedAt: now,
+      urgencyScore: result.urgencyScore,
+      importanceScore: result.importanceScore,
+      quadrant: result.quadrant,
+      triageAnswers: draft.triageAnswers,
+      recommendation: result.recommendation,
+      nextStep: result.nextStep,
+      explanation: result.explanation,
+      completed: false,
+    };
+
+    const nextItems = [newItem, ...currentItems];
+    itemsRef.current = nextItems;
+    setItems(nextItems);
+
+    triggerSuccessHaptic();
+    clearDraft();
+    return newItem.id;
+  };
+
+  const updateItemBasics = (id: string, patch: Pick<DecisionItem, "title" | "notes" | "category">) => {
+    commitItems((currentItems) =>
+      currentItems.map((item) =>
+        item.id === id
+          ? {
+              ...item,
+              ...patch,
+              updatedAt: new Date().toISOString(),
+            }
+          : item
+      )
+    );
+  };
+
+  const toggleComplete = (id: string) => {
+    commitItems((currentItems) =>
+      currentItems.map((item) =>
+        item.id === id
+          ? {
+              ...item,
+              completed: !item.completed,
+              updatedAt: new Date().toISOString(),
+            }
+          : item
+      )
+    );
+  };
+
+  const deleteItem = (id: string) => {
+    commitItems((currentItems) => currentItems.filter((item) => item.id !== id));
+  };
+
+  const moveQuadrant = (id: string, quadrant: Quadrant) => {
+    commitItems((currentItems) =>
+      currentItems.map((item) => {
+        if (item.id !== id) {
+          return item;
+        }
+
+        const guidance = getQuadrantGuidance(quadrant, item.triageAnswers);
+        return {
+          ...item,
+          quadrant,
+          recommendation: guidance.recommendation,
+          nextStep: guidance.nextStep,
+          explanation: `Moved manually to ${QUADRANT_META[quadrant].label}. ${QUADRANT_META[quadrant].description}`,
+          updatedAt: new Date().toISOString(),
+        };
+      })
+    );
+  };
+
+  const dismissIntro = () => {
+    setIntroSeen(true);
+    storage.saveIntroSeen(true).catch(() => undefined);
+  };
+
+  return (
+    <AppContext.Provider
+      value={{
+        items,
+        hydrated,
+        draft,
+        introSeen,
+        startDraft,
+        startRetriage,
+        updateDraft,
+        clearDraft,
+        saveDraftResult,
+        updateItemBasics,
+        toggleComplete,
+        deleteItem,
+        moveQuadrant,
+        dismissIntro,
+      }}
+    >
+      {children}
+    </AppContext.Provider>
+  );
+};
+
+export const useAppData = () => {
+  const context = useContext(AppContext);
+
+  if (!context) {
+    throw new Error("useAppData must be used within AppProvider");
+  }
+
+  return context;
+};

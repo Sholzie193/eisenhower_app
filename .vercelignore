@@ -1,0 +1,7 @@
+node_modules
+.expo
+.vercel
+.npm-cache
+dist
+web-build
+.DS_Store

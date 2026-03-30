@@ -82,8 +82,12 @@ const OPTION_INTRO_PREFIXES = [
   /^i(?:['’]m| am) (?:also\s+)?(?:still )?trying to decide whether (?:to|i should)\s+/i,
 ];
 const META_LANGUAGE_PATTERNS = [
+  /\bdecide between\b/i,
+  /\bthey all matter for different reasons\b/i,
   /\b(?:best|cleaner)\s+(?:first|next)\s+option\b/i,
   /\bwhat should wait\b/i,
+  /\bwhat do i do first\b/i,
+  /\bclearest next move\b/i,
   /\bwhat to do (?:now|next|instead)\b/i,
   /\bhow to handle it\b/i,
   /\bhandle first\b/i,
@@ -93,8 +97,11 @@ const META_LANGUAGE_PATTERNS = [
 ];
 const CONTEXT_ONLY_PATTERNS = [
   /^(?:but\s+)?i(?:['’]m| am)\s+(?:mentally\s+)?(?:tired|hungry|exhausted|drained|fatigued|low energy|burned out|burnt out)\b/i,
+  /^\s*i urgently need cash flow soon\b/i,
+  /\bcash flow soon\b/i,
   /^\s*(?:but\s+)?money\b.+\b(?:would help|helps)\b/i,
   /\bwould help me right now\b/i,
+  /\bwon[’']?t directly bring in money today\b/i,
   /\bbefore i feel good about it\b/i,
   /\bi feel good about it\b/i,
   /\bit would be better if\b/i,
@@ -123,7 +130,7 @@ const CONTEXT_PATTERNS: Array<{ kind: ContextSignalKind; label: string; expressi
   {
     kind: "lowEnergy",
     label: "Energy feels low right now.",
-    expression: /\b(?:hungry|hunger|tired|tiredness|exhausted|drained|fatigued|low energy|burned out|burnt out)\b/i,
+    expression: /\b(?:hungry|hunger|tired|tiredness|exhausted|drained|fatigued|low energy|low on energy|burned out|burnt out)\b/i,
   },
   {
     kind: "deadlinePressure",
@@ -135,12 +142,12 @@ const CONTEXT_PATTERNS: Array<{ kind: ContextSignalKind; label: string; expressi
     kind: "moneySpeed",
     label: "Cash timing seems to matter here.",
     expression:
-      /\b(?:money faster|get paid faster|paid faster|receive money faster|receive money from (?:them|this) faster|cash faster|pay faster|sooner)\b/i,
+      /\b(?:cash flow soon|money faster|get paid faster|paid faster|receive money faster|receive money from (?:them|this) faster|cash faster|pay faster|sooner)\b/i,
   },
   {
     kind: "higherValue",
     label: "One path appears to have higher upside.",
-    expression: /\b(?:pay more|higher paying|higher value|more value|long term)\b/i,
+    expression: /\b(?:pay more|higher paying|higher value|more value|long term|credibility matters)\b/i,
   },
   {
     kind: "socialPressure",
@@ -187,6 +194,8 @@ const DUE_WINDOW_PRIORITY: Record<DueWindow, number> = {
 };
 
 const hasAnyMatch = (value: string, expressions: RegExp[]) => expressions.some((expression) => expression.test(value));
+
+const isParagraphLikeInput = (value: string) => value.split(/\s+/).length > 18 || /[.?!]/.test(value);
 
 const dedupe = (values: string[]) => {
   const seen = new Set<string>();
@@ -305,12 +314,15 @@ const naturalizeOptionTitle = (value: string) => {
 const buildCandidateTitle = (value: string) => {
   const cleaned = cleanCandidate(value);
   const withoutContext = removeWhyClause(cleaned);
+  const withoutSubjectLead = withoutContext
+    .replace(/^(?:i\s+(?:could|can|should|might|will|would)\s+|i\s+want\s+to\s+|i\s+need\s+to\s+)/i, "")
+    .trim();
   const simplified = TITLE_PREFIXES.reduce(
     (currentValue, expression) => currentValue.replace(expression, ""),
-    withoutContext
+    withoutSubjectLead
   ).trim();
 
-  return naturalizeOptionTitle((simplified || withoutContext || cleaned).replace(/[.?!]+$/g, "").trim());
+  return naturalizeOptionTitle((simplified || withoutSubjectLead || withoutContext || cleaned).replace(/[.?!]+$/g, "").trim());
 };
 
 const extractContextSignals = (rawInput: string) =>
@@ -550,6 +562,48 @@ const filterEligibleCandidates = (
   return filtered;
 };
 
+const trimLeadingConnector = (value: string) =>
+  value.replace(/^(?:and|but|so|also|then)\s+/i, "").trim();
+
+const splitActionClauses = (rawInput: string) =>
+  rawInput
+    .replace(/[•·]/g, "\n")
+    .replace(/\s+/g, " ")
+    .split(/(?<=[.?!])\s+|[;\n]+|\s+(?=(?:but|and|also|then|so)\s+(?:i\s+)?(?:need|have|want|should|could|can|must|will|won['’]?t|would|send|follow up|call|fix|reply|book|pay|prepare|ask|rest|ship|submit|review|reach out))/i)
+    .map((clause) => trimLeadingConnector(clause.trim()))
+    .filter(Boolean);
+
+const normalizeActionClause = (value: string) => {
+  const cleaned = cleanCandidate(value);
+  const withoutReasonTail = cleaned
+    .replace(/\s+(?:because|since|so|as)\s+.+$/i, "")
+    .replace(/\s+\b(?:but|although|though)\b\s+.+$/i, "")
+    .trim();
+
+  const withoutNeedPrefix = withoutReasonTail
+    .replace(/^(?:i\s+need\s+to|need\s+to|i\s+have\s+to|have\s+to|i\s+could|i\s+can|i\s+should|i\s+might|i\s+would)\s+/i, "")
+    .trim();
+
+  return withoutNeedPrefix || withoutReasonTail || cleaned;
+};
+
+const extractActionClauses = (rawInput: string) => {
+  const clauses = splitActionClauses(rawInput);
+  const actionClauses = clauses
+    .map(normalizeActionClause)
+    .filter((clause) => clause.length > 2)
+    .filter((clause) => !isMetaLanguage(clause) && !isContextOnlyFragment(clause))
+    .filter(
+      (clause) =>
+        hasActionVerb(clause) ||
+        /^(?:the\s+)?(?:proposal|website|rent|invoice|landlord|meeting|reply|follow up)\b.+\b(?:needs?|requires?)\b/i.test(
+          clause
+        )
+    );
+
+  return filterEligibleCandidates(actionClauses, rawInput, "tasks");
+};
+
 const isShortNounLikeOption = (value: string) =>
   !/^(send|call|email|fix|rest|book|schedule|wait|move|take|protect|keep|follow up|reply|start)\b/i.test(
     value
@@ -664,6 +718,13 @@ const extractCandidateTexts = (rawInput: string) => {
     .replace(/\s+(?:vs\.?|versus)\s+/gi, ", ")
     .replace(/\s+/g, " ")
     .trim();
+
+  if (isParagraphLikeInput(normalized)) {
+    const extractedActions = extractActionClauses(normalized);
+    if (extractedActions.length > 1) {
+      return extractedActions;
+    }
+  }
 
   const delimiterSplit = normalized
     .split(/[\n,;]+/)
@@ -1490,7 +1551,7 @@ export const analyzeClarityInput = (rawInput: string, selectedDecisionGroupId?: 
     : extractCandidateTexts(analysisInput);
   const lowerInput = analysisInput.replace(/\s+/g, " ").trim().toLowerCase();
   const containsFogLanguage = FOG_PHRASES.some((phrase) => lowerInput.includes(phrase));
-  const isParagraphLike = analysisInput.split(/\s+/).length > 18 || /[.?!]/.test(analysisInput);
+  const isParagraphLike = isParagraphLikeInput(analysisInput);
   const narrowedCandidates = extractedCandidates.slice(0, 6);
   const builtCandidates = narrowedCandidates.map((candidateText, index) =>
     buildCandidate(candidateText, index, contextSignals)

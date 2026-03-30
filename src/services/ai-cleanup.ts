@@ -35,7 +35,7 @@ const AI_ACTION_VERB_PATTERNS = [
   /\b(?:call|email|send|fix|finish|rest|book|schedule|wait|reply|follow up|cold email|cold call|cold calling|clean up|cleanup|prioriti[sz]e|focus on|keep|switch|choose|pay|invoice|ship|submit|review|reach out|outreach|delegate|automate|reduce|ignore|quit|resign|sign|buy|sell|start|stop|eat|prepare|ask|contact)\b/i,
 ];
 const AI_OPTION_NOUN_PATTERNS = [
-  /\b(?:proposal|invoice|contract|email|website|rent|landlord|meeting|clients?|outreach|cold email|cold calling|call|rest|break)\b/i,
+  /\b(?:proposal|invoice|contract|email|website|rent|landlord|meeting|clients?|client|lead|timing|outreach|cold email|cold calling|call|rest|break)\b/i,
 ];
 
 export const AI_CLEANUP_JSON_SCHEMA = {

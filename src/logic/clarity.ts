@@ -707,6 +707,21 @@ const hasExplicitSeparateDecisionSignal = (rawInput: string) => {
   return countCompareScaffolds(rawInput) >= 2;
 };
 
+const hasClearlySeparateCompareDecisions = (
+  rawInput: string,
+  decisionGroups: ClarityDecisionGroup[]
+) => {
+  if (!hasExplicitSeparateDecisionSignal(rawInput)) {
+    return false;
+  }
+
+  const compareGroups = decisionGroups.filter(
+    (group) => group.candidateRelationship === "alternatives" && group.candidateTexts.length > 1
+  );
+
+  return compareGroups.length >= 2;
+};
+
 const shouldKeepStructuredActionsCombined = (
   rawInput: string,
   cleanup: AiCleanupResult,
@@ -722,12 +737,18 @@ const shouldKeepStructuredActionsCombined = (
     return true;
   }
 
-  if (decisionGroups.length <= 1) {
-    return false;
+  const totalStructuredActions = dedupe(decisionGroups.flatMap((group) => group.candidateTexts)).length;
+
+  if (Math.max(totalStructuredActions, extractedFallbackActions.length) >= 3) {
+    return !hasClearlySeparateCompareDecisions(rawInput, decisionGroups);
   }
 
   if (!hasExplicitSeparateDecisionSignal(rawInput) && extractedFallbackActions.length >= 3) {
     return true;
+  }
+
+  if (decisionGroups.length <= 1) {
+    return false;
   }
 
   const allGroupsAreSingleAction = decisionGroups.every((group) => group.candidateTexts.length <= 1);
@@ -1710,7 +1731,7 @@ export const analyzeStructuredClarityInput = (
       id: `candidate-${index + 1}`,
       decision_group: action.decision_group || fallbackGroupId,
       details: action.details?.trim() ?? "",
-      title: sanitizeAiActionTitle(action.title, normalizedInput),
+      title: action.title.trim() || sanitizeAiActionTitle(action.title, normalizedInput),
     }))
     .filter((action) => action.title);
   const decisionGroups = cleanup.decision_groups
@@ -1722,7 +1743,7 @@ export const analyzeStructuredClarityInput = (
       }
 
       const sanitizedLabel = sanitizeAiDecisionGroupLabel(
-        group.label,
+        group.label || groupActions.map((action) => action.title).join(" or "),
         groupActions.map((action) => action.title),
         normalizedInput
       );

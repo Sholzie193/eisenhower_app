@@ -212,7 +212,7 @@ function ClarityResultScreen() {
             category: firstMove.category,
             triageAnswers: firstMove.triageAnswers,
           });
-          router.replace("/triage");
+          router.replace("/add");
         }}
       />
       <NeuButton

@@ -35,6 +35,8 @@ const FILLER_PREFIXES = [
   /^i don't know whether to\s+/i,
   /^i dont know whether to\s+/i,
   /^whether to\s+/i,
+  /^and\s+/i,
+  /^or\s+/i,
 ];
 
 const AREA_KEYWORDS: Record<ImpactArea, RegExp[]> = {
@@ -51,8 +53,12 @@ const AREA_KEYWORDS: Record<ImpactArea, RegExp[]> = {
 const KEYWORDS = {
   urgentToday: [/\btoday\b/i, /\btonight\b/i, /\basap\b/i, /\burgent\b/i, /\bright away\b/i, /\bimmediately\b/i, /\beod\b/i, /\bend of day\b/i],
   urgentTomorrow: [/\btomorrow\b/i, /\bfirst thing\b/i],
-  urgentWeek: [/\bthis week\b/i, /\bfriday\b/i, /\bmonday\b/i, /\btuesday\b/i, /\bwednesday\b/i, /\bthursday\b/i, /\bweekend\b/i, /\bsoon\b/i],
-  hardDeadline: [/\bdeadline\b/i, /\bdue\b/i, /\bbefore\b/i, /\bby\b/i],
+  urgentWeek: [/\bthis week\b/i, /\bfriday\b/i, /\bmonday\b/i, /\btuesday\b/i, /\bwednesday\b/i, /\bthursday\b/i, /\bweekend\b/i],
+  hardDeadline: [
+    /\bdeadline\b/i,
+    /\bdue\s+(?:today|tonight|tomorrow|this week|this weekend|weekend|monday|tuesday|wednesday|thursday|friday|saturday|sunday|later)\b/i,
+    /\b(?:by|before)\s+(?:today|tonight|tomorrow|this week|this weekend|weekend|monday|tuesday|wednesday|thursday|friday|saturday|sunday|eod|end of day|\d{1,2}(?::\d{2})?\s?(?:am|pm)?)\b/i,
+  ],
   severeDelay: [/\blandlord\b/i, /\brent\b/i, /\bclient\b/i, /\bproposal\b/i, /\binvoice\b/i, /\bhealth\b/i, /\bdoctor\b/i, /\bpay\b/i],
   disruptiveDelay: [/\bwebsite\b/i, /\boutreach\b/i, /\badmin\b/i, /\bemail\b/i, /\bmeeting\b/i, /\bdocs?\b/i, /\bcall\b/i],
   relief: [/\binbox\b/i, /\badmin\b/i, /\bemail\b/i, /\blandlord\b/i, /\bcall\b/i, /\bdocs?\b/i, /\breply\b/i, /\bdecision\b/i, /\brest\b/i],
@@ -78,6 +84,36 @@ const dedupe = (values: string[]) => {
   });
 };
 
+const computeCompositeScore = (
+  triageResult: ClarityCandidate["triageResult"],
+  delayCostScore: number,
+  reliefScore: number,
+  longTermScore: number,
+  reversibilityScore: number
+) => {
+  const matrixScore = triageResult.urgencyScore * 0.6 + triageResult.importanceScore * 0.85;
+  return Number(
+    (matrixScore + delayCostScore * 0.72 + reliefScore * 0.76 + longTermScore * 0.62 + reversibilityScore * 0.28).toFixed(2)
+  );
+};
+
+const increaseDelayImpact = (delayImpact: TriageAnswers["delayImpact"]) => {
+  switch (delayImpact) {
+    case "none":
+      return "annoying" as const;
+    case "annoying":
+      return "disruptive" as const;
+    case "disruptive":
+      return "severe" as const;
+    case "severe":
+    default:
+      return "severe" as const;
+  }
+};
+
+const hasExplicitCompareScaffold = (value: string) =>
+  /\b(decide between|which one|vs\.?|versus|whether to|should i)\b/i.test(value);
+
 const cleanCandidate = (value: string) => {
   const withoutBullets = value.replace(/^[\s\-*•\d.)]+/, "").trim();
   const withoutPrefixes = FILLER_PREFIXES.reduce(
@@ -92,10 +128,28 @@ const extractCandidateTexts = (rawInput: string) => {
   const normalized = rawInput
     .replace(/[•·]/g, "\n")
     .replace(/\s+(?:vs\.?|versus)\s+/gi, ", ")
-    .replace(/\s+\bor\b\s+/gi, ", ")
-    .replace(/\s+\band\b\s+/gi, ", ")
     .replace(/\s+/g, " ")
     .trim();
+
+  const delimiterSplit = normalized
+    .split(/[\n,;]+/)
+    .map(cleanCandidate)
+    .filter((value) => value.length > 2);
+
+  if (delimiterSplit.length > 1) {
+    return dedupe(delimiterSplit);
+  }
+
+  if (hasExplicitCompareScaffold(normalized) || /\s+\bor\b\s+/i.test(normalized)) {
+    const compareSplit = normalized
+      .split(/\s+\bor\b\s+/i)
+      .map(cleanCandidate)
+      .filter((value) => value.length > 2);
+
+    if (compareSplit.length > 1) {
+      return dedupe(compareSplit);
+    }
+  }
 
   const candidates = dedupe(
     normalized
@@ -265,9 +319,12 @@ const buildCandidate = (sourceText: string, index: number): ClarityCandidate => 
   const reliefScore = getMentalReliefScore(normalizedText);
   const longTermScore = getLongTermScore(normalizedText, impactAreas);
   const reversibilityScore = getReversibilityScore(normalizedText);
-  const matrixScore = triageResult.urgencyScore * 0.6 + triageResult.importanceScore * 0.85;
-  const compositeScore = Number(
-    (matrixScore + delayCostScore * 0.72 + reliefScore * 0.76 + longTermScore * 0.62 + reversibilityScore * 0.28).toFixed(2)
+  const compositeScore = computeCompositeScore(
+    triageResult,
+    delayCostScore,
+    reliefScore,
+    longTermScore,
+    reversibilityScore
   );
 
   const title = sourceText.charAt(0).toUpperCase() + sourceText.slice(1);
@@ -290,6 +347,51 @@ const buildCandidate = (sourceText: string, index: number): ClarityCandidate => 
   return {
     ...candidate,
     calmingWhy: buildCalmingWhy(candidate),
+  };
+};
+
+const refreshCandidate = (
+  candidate: ClarityCandidate,
+  patch: {
+    triageAnswers?: Partial<TriageAnswers>;
+    delayCostScore?: number;
+    reliefScore?: number;
+    longTermScore?: number;
+    reversibilityScore?: number;
+  }
+) => {
+  const nextImpactAreas = patch.triageAnswers?.impactAreas ?? candidate.triageAnswers.impactAreas;
+  const triageAnswers: TriageAnswers = {
+    ...candidate.triageAnswers,
+    ...patch.triageAnswers,
+    impactAreas: nextImpactAreas,
+  };
+  const triageResult = evaluateTriage(triageAnswers);
+  const delayCostScore = patch.delayCostScore ?? candidate.delayCostScore;
+  const reliefScore = patch.reliefScore ?? candidate.reliefScore;
+  const longTermScore = patch.longTermScore ?? candidate.longTermScore;
+  const reversibilityScore = patch.reversibilityScore ?? candidate.reversibilityScore;
+
+  const nextCandidate: ClarityCandidate = {
+    ...candidate,
+    triageAnswers,
+    triageResult,
+    delayCostScore,
+    reliefScore,
+    longTermScore,
+    reversibilityScore,
+    compositeScore: computeCompositeScore(
+      triageResult,
+      delayCostScore,
+      reliefScore,
+      longTermScore,
+      reversibilityScore
+    ),
+  };
+
+  return {
+    ...nextCandidate,
+    calmingWhy: buildCalmingWhy(nextCandidate),
   };
 };
 
@@ -390,13 +492,13 @@ export const analyzeClarityInput = (rawInput: string): ClarityAnalysis => {
   const compareCandidates = sortedCandidates.slice(0, Math.min(sortedCandidates.length, 4));
 
   const mode: ClarityMode =
-    compareCandidates.length <= 1
-      ? isParagraphLike || containsFogLanguage
-        ? "fog"
-        : "single"
-      : compareCandidates.length <= 4 && !isParagraphLike && !containsFogLanguage
-        ? "compare"
-        : "fog";
+    extractedCandidates.length > 4
+      ? "fog"
+      : compareCandidates.length <= 1
+        ? isParagraphLike || containsFogLanguage
+          ? "fog"
+          : "single"
+        : "compare";
 
   return finalizeAnalysis(
     normalizedInput,
@@ -410,9 +512,48 @@ export const answerClarityQuestion = (
   analysis: ClarityAnalysis,
   selectedCandidateId: string
 ): ClarityAnalysis => {
+  if (!analysis.question) {
+    return analysis;
+  }
+
+  const deadlineBaseline =
+    analysis.candidates.find((candidate) => candidate.triageAnswers.hasDeadline)?.triageAnswers.dueWindow ??
+    "thisWeek";
+
   const boostedCandidates = analysis.candidates.map((candidate) =>
     candidate.id === selectedCandidateId
-      ? { ...candidate, compositeScore: Number((candidate.compositeScore + 1.45).toFixed(2)) }
+      ? analysis.question?.kind === "deadline"
+        ? refreshCandidate(candidate, {
+            triageAnswers: {
+              hasDeadline: true,
+              dueWindow:
+                candidate.triageAnswers.dueWindow === "noDeadline"
+                  ? deadlineBaseline
+                  : candidate.triageAnswers.dueWindow,
+            },
+            delayCostScore: clamp(candidate.delayCostScore + 0.75),
+          })
+        : analysis.question?.kind === "relief"
+          ? refreshCandidate(candidate, {
+              reliefScore: clamp(candidate.reliefScore + 1.2),
+            })
+          : analysis.question?.kind === "longTerm"
+            ? refreshCandidate(candidate, {
+                triageAnswers: {
+                  importanceSignal:
+                    candidate.triageAnswers.importanceSignal === "mostlyNoise" ? "unclear" : "meaningful",
+                  impactAreas: candidate.triageAnswers.impactAreas.includes("longTermGoals")
+                    ? candidate.triageAnswers.impactAreas
+                    : [...candidate.triageAnswers.impactAreas, "longTermGoals"],
+                },
+                longTermScore: clamp(candidate.longTermScore + 1.2),
+              })
+            : refreshCandidate(candidate, {
+                triageAnswers: {
+                  delayImpact: increaseDelayImpact(candidate.triageAnswers.delayImpact),
+                },
+                delayCostScore: clamp(candidate.delayCostScore + 1.1),
+              })
       : candidate
   );
 

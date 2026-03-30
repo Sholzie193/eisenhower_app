@@ -1,4 +1,4 @@
-import { DUE_WINDOW_LABELS, IMPACT_AREA_LABELS, QUADRANT_META } from "../constants/quadrants";
+import { DUE_WINDOW_LABELS, IMPACT_AREA_LABELS } from "../constants/quadrants";
 import {
   DEFAULT_TRIAGE_ANSWERS,
   DELAY_URGENCY_WEIGHTS,
@@ -48,39 +48,190 @@ const getAreaSummary = (areas: TriageAnswers["impactAreas"]) => {
   return `${labels.slice(0, -1).join(", ")}, and ${labels.at(-1)}`;
 };
 
+const getDueWindowSummary = (answers: TriageAnswers) => {
+  if (!answers.hasDeadline || answers.dueWindow === "noDeadline") {
+    return "there is no real deadline";
+  }
+
+  switch (answers.dueWindow) {
+    case "today":
+      return "it has a real deadline today";
+    case "tomorrow":
+      return "it has a real deadline tomorrow";
+    case "thisWeek":
+      return "it has a real deadline this week";
+    case "later":
+    default:
+      return "it has a real deadline, but not an immediate one";
+  }
+};
+
+const getDelaySummary = (delayImpact: TriageAnswers["delayImpact"]) => {
+  switch (delayImpact) {
+    case "severe":
+      return "delay would create real damage quickly";
+    case "disruptive":
+      return "delay would create meaningful friction";
+    case "annoying":
+      return "delay would be mildly annoying";
+    case "none":
+    default:
+      return "there is very little downside if it waits";
+  }
+};
+
+const getImportanceSummary = (answers: TriageAnswers) => {
+  const areaSummary = getAreaSummary(answers.impactAreas);
+
+  if (!areaSummary) {
+    return answers.importanceSignal === "mostlyNoise"
+      ? "it does not seem to affect a core area right now"
+      : "it does not clearly affect a core area right now";
+  }
+
+  if (answers.importanceSignal === "meaningful") {
+    return `it clearly affects ${areaSummary.toLowerCase()}`;
+  }
+
+  if (answers.importanceSignal === "mostlyNoise") {
+    return `it touches ${areaSummary.toLowerCase()}, while the underlying significance still looks light`;
+  }
+
+  return `it touches ${areaSummary.toLowerCase()}, while the overall importance is still a little unclear`;
+};
+
+const getHandlingSummary = (handlingChoice: TriageAnswers["handlingChoice"]) => {
+  switch (handlingChoice) {
+    case "delegate":
+      return "A handoff is likely cleaner than carrying it yourself.";
+    case "automate":
+      return "This looks better handled with a template, shortcut, or repeatable system.";
+    case "reduce":
+      return "The need may be real, but the full version looks heavier than necessary.";
+    case "ignore":
+      return "It may be better to let this stay out of the active list unless something changes.";
+    case "direct":
+    default:
+      return "";
+  }
+};
+
+const buildExplanation = (quadrant: Quadrant, answers: TriageAnswers) => {
+  const deadlineSummary = getDueWindowSummary(answers);
+  const delaySummary = getDelaySummary(answers.delayImpact);
+  const importanceSummary = getImportanceSummary(answers);
+  const handlingSummary = getHandlingSummary(answers.handlingChoice);
+
+  if (quadrant === "doNow") {
+    return [
+      `This looks worth moving now because ${deadlineSummary} and ${delaySummary}.`,
+      `It also matters because ${importanceSummary}.`,
+    ].join(" ");
+  }
+
+  if (quadrant === "schedule") {
+    return [
+      `This matters because ${importanceSummary}, but ${deadlineSummary === "there is no real deadline" ? "there is no hard time pressure pulling it into today" : deadlineSummary.replace(/^it /, "the deadline ") + " is not strong enough to make it a now-task"}.`,
+      answers.delayImpact === "none" || answers.delayImpact === "annoying"
+        ? "Planning it deliberately should reduce the mental drag without treating it like an emergency."
+        : "It is worth giving a protected slot before the friction grows."
+    ].join(" ");
+  }
+
+  if (quadrant === "delegate") {
+    return [
+      `This has enough time pressure that it should not be ignored, but ${importanceSummary}.`,
+      answers.handlingChoice === "direct"
+        ? "It looks more like something to keep moving with minimal direct effort than something to personally invest in deeply."
+        : handlingSummary,
+    ].join(" ");
+  }
+
+  return [
+    answers.importanceSignal === "mostlyNoise"
+      ? `This looks low-pressure because ${deadlineSummary}, ${delaySummary}, and it mostly seems like background noise rather than a core priority.`
+      : `This looks low-pressure because ${deadlineSummary}, ${delaySummary}, and ${importanceSummary}.`,
+    answers.handlingChoice === "ignore"
+      ? "Letting it leave the active list is probably the cleanest move."
+      : "Keeping it out of the active list is unlikely to cost much right now.",
+  ].join(" ");
+};
+
 export const getQuadrantGuidance = (
   quadrant: Quadrant,
   answers: TriageAnswers
 ): Pick<TriageResult, "recommendation" | "nextStep"> => {
-  const meta = QUADRANT_META[quadrant];
-
-  if (quadrant === "delegate" && answers.handlingChoice !== "direct") {
+  if (quadrant === "doNow") {
     return {
-      recommendation: "Reduce the amount of direct energy this receives.",
+      recommendation:
+        answers.hasDeadline || answers.delayImpact === "severe"
+          ? "Move this now while the pressure is real."
+          : "Take the smallest meaningful step now.",
       nextStep:
-        answers.handlingChoice === "delegate"
-          ? "Choose the person, message, or handoff you need and send it."
-          : answers.handlingChoice === "automate"
-            ? "Set up the shortcut, template, or recurring system that removes repeat effort."
-            : answers.handlingChoice === "reduce"
-              ? "Trim the task to a lighter version that still handles the need."
-              : "Decide to let this pass and keep your focus for what matters more.",
+        answers.hasDeadline && answers.dueWindow === "today"
+          ? "Do the first useful part before you leave this screen."
+          : "Start the smallest useful step so this stops sitting in your head.",
     };
   }
 
   if (quadrant === "schedule") {
     return {
-      recommendation: meta.recommendation,
+      recommendation:
+        answers.hasDeadline && answers.dueWindow !== "later" && answers.dueWindow !== "noDeadline"
+          ? "Put this on the calendar before the deadline starts running the day."
+          : "Protect a calm time block instead of treating this like a today problem.",
       nextStep:
         answers.dueWindow === "later" || answers.dueWindow === "noDeadline"
           ? "Pick a specific day and a short time block so it stops floating around."
-          : meta.nextStep,
+          : `Block a short session ${DUE_WINDOW_LABELS[answers.dueWindow].toLowerCase()} and define what done looks like.`,
+    };
+  }
+
+  if (quadrant === "delegate") {
+    if (answers.handlingChoice === "delegate") {
+      return {
+        recommendation: "Hand this off instead of carrying it yourself.",
+        nextStep: "Choose the person, message, or handoff you need and send it.",
+      };
+    }
+
+    if (answers.handlingChoice === "automate") {
+      return {
+        recommendation: "Set up a lighter system instead of repeating this manually.",
+        nextStep: "Create the template, shortcut, or recurring setup that removes the repeat effort.",
+      };
+    }
+
+    if (answers.handlingChoice === "reduce") {
+      return {
+        recommendation: "Keep only the minimum version that handles the need.",
+        nextStep: "Trim the task to the smallest acceptable version and stop there.",
+      };
+    }
+
+    if (answers.handlingChoice === "ignore") {
+      return {
+        recommendation: "Let this pass unless it becomes more real.",
+        nextStep: "Remove it from the active list and only revisit if the consequences change.",
+      };
+    }
+
+    return {
+      recommendation: "Keep this moving with the lightest-touch response.",
+      nextStep: "Do the minimum needed to prevent friction, then move on.",
+    };
+  }
+
+  if (answers.handlingChoice === "ignore" || answers.importanceSignal === "mostlyNoise") {
+    return {
+      recommendation: "Let this leave the active list for now.",
+      nextStep: "Archive it, snooze it, or move it to a later list so it stops taking foreground attention.",
     };
   }
 
   return {
-    recommendation: meta.recommendation,
-    nextStep: meta.nextStep,
+    recommendation: "Move this out of sight so it stops taking mental space.",
+    nextStep: "Archive it or set a distant review point if you still want to keep a loose note of it.",
   };
 };
 
@@ -97,8 +248,14 @@ export const evaluateTriage = (answers: TriageAnswers = DEFAULT_TRIAGE_ANSWERS):
   }
 
   urgencyScore += DELAY_URGENCY_WEIGHTS[answers.delayImpact];
-  if (answers.delayImpact === "disruptive" || answers.delayImpact === "severe") {
-    urgencyReasons.push("Delay creates meaningful friction quickly.");
+  if (answers.delayImpact === "severe") {
+    urgencyReasons.push("Delay would cause real damage quickly.");
+  } else if (answers.delayImpact === "disruptive") {
+    urgencyReasons.push("Delay would create meaningful friction quickly.");
+  } else if (answers.delayImpact === "annoying") {
+    urgencyReasons.push("Delay would be annoying, but not deeply costly.");
+  } else {
+    urgencyReasons.push("Waiting does not seem to create much downside.");
   }
 
   const cappedAreaScore = Math.min(
@@ -120,13 +277,11 @@ export const evaluateTriage = (answers: TriageAnswers = DEFAULT_TRIAGE_ANSWERS):
   }
 
   if (answers.importanceSignal === "mostlyNoise") {
-    importanceReasons.push("It may feel pressing, but the underlying significance looks light.");
+    importanceReasons.push("It may feel loud, but the underlying significance looks light.");
   }
 
   if (answers.handlingChoice !== "direct") {
-    importanceReasons.push(
-      "The handling choice informs the recommendation, but it does not change the Eisenhower score."
-    );
+    importanceReasons.push(getHandlingSummary(answers.handlingChoice));
   }
 
   const normalizedUrgency = clampScore(urgencyScore);
@@ -134,15 +289,7 @@ export const evaluateTriage = (answers: TriageAnswers = DEFAULT_TRIAGE_ANSWERS):
   const quadrant = getQuadrantFromScores(normalizedUrgency, normalizedImportance);
   const guidance = getQuadrantGuidance(quadrant, answers);
 
-  const explanation = [
-    normalizedUrgency >= TRIAGE_THRESHOLDS.urgent
-      ? "This carries genuine time pressure based on deadline and cost of delay."
-      : "This does not need immediate motion.",
-    normalizedImportance >= TRIAGE_THRESHOLDS.important
-      ? "It also carries real importance based on what it affects."
-      : "Its significance looks limited once urgency is separated from importance.",
-    QUADRANT_META[quadrant].description,
-  ].join(" ");
+  const explanation = buildExplanation(quadrant, answers);
 
   return {
     urgencyScore: normalizedUrgency,

@@ -12,7 +12,11 @@ import { useAppTheme } from "../src/providers/theme-provider";
 import { goBackOrFallback } from "../src/utils/navigation";
 import type { ClarityAnalysis, ClarityCandidate } from "../src/types/decision";
 
-const getClarityLabel = (candidate: ClarityCandidate) => {
+const getClarityLabel = (analysis: ClarityAnalysis, candidate: ClarityCandidate) => {
+  if (analysis.decisionShape === "option_choice") {
+    return "Best first option";
+  }
+
   switch (candidate.triageResult.quadrant) {
     case "doNow":
       return "Do this first";
@@ -42,10 +46,10 @@ const getWaitCopy = (candidate: ClarityCandidate) => {
 
 const getWaitingHeading = (analysis: ClarityAnalysis) => {
   if (analysis.activeDecisionGroupId) {
-    return "Not the first move";
+    return analysis.decisionShape === "option_choice" ? "Other option" : "Not the first move";
   }
 
-  if (analysis.candidateRelationship === "alternatives" && analysis.mode !== "single") {
+  if (analysis.decisionShape === "option_choice") {
     return "Other options";
   }
 
@@ -54,10 +58,12 @@ const getWaitingHeading = (analysis: ClarityAnalysis) => {
 
 const getWaitingEmptyCopy = (analysis: ClarityAnalysis) => {
   if (analysis.activeDecisionGroupId) {
-    return "Nothing else in this decision looks clearer than the move above.";
+    return analysis.decisionShape === "option_choice"
+      ? "No other option looks stronger than the one above."
+      : "Nothing else in this decision looks clearer than the move above.";
   }
 
-  if (analysis.candidateRelationship === "alternatives" && analysis.mode !== "single") {
+  if (analysis.decisionShape === "option_choice") {
     return "No other option in this comparison looks stronger than the move above.";
   }
 
@@ -66,10 +72,12 @@ const getWaitingEmptyCopy = (analysis: ClarityAnalysis) => {
 
 const getAdaptiveWaitCopy = (analysis: ClarityAnalysis, candidate: ClarityCandidate) => {
   if (analysis.activeDecisionGroupId) {
-    return "A real option, just not the clearest first move inside this decision.";
+    return analysis.decisionShape === "option_choice"
+      ? "A valid option, just not the cleaner first move here."
+      : "A real option, just not the clearest first move inside this decision.";
   }
 
-  if (analysis.candidateRelationship === "alternatives" && analysis.mode !== "single") {
+  if (analysis.decisionShape === "option_choice") {
     return "Still valid, just not the strongest option to act on first.";
   }
 
@@ -79,6 +87,10 @@ const getAdaptiveWaitCopy = (analysis: ClarityAnalysis, candidate: ClarityCandid
 const getModeHeading = (analysis: ClarityAnalysis) => {
   if (analysis.decisionGroups.length > 1 && !analysis.activeDecisionGroupId) {
     return "Let’s separate the decisions.";
+  }
+
+  if (analysis.decisionShape === "option_choice") {
+    return "Here’s the cleaner option.";
   }
 
   const { mode } = analysis;
@@ -212,12 +224,22 @@ function ClarityResultScreen() {
             <View style={styles.heroTop}>
               <QuadrantPill quadrant={firstMove.triageResult.quadrant} />
               <Text style={[styles.heroTag, { color: theme.quadrants[firstMove.triageResult.quadrant].solid }]}>
-                {getClarityLabel(firstMove)}
+                {getClarityLabel(claritySession, firstMove)}
               </Text>
             </View>
 
+            {claritySession.decisionLabel ? (
+              <Text style={[styles.label, { color: theme.colors.textSoft }]}>
+                Decision: {claritySession.decisionLabel}
+              </Text>
+            ) : null}
             <Text style={[styles.primaryTitle, { color: theme.colors.text }]}>{firstMove.title}</Text>
             <Text style={[styles.primaryWhy, { color: theme.colors.textMuted }]}>{firstMove.calmingWhy}</Text>
+            {claritySession.contextHints.length ? (
+              <Text style={[styles.waitFootnote, { color: theme.colors.textSoft }]}>
+                {claritySession.contextHints[0]}
+              </Text>
+            ) : null}
           </NeuCard>
 
           <NeuCard variant="flat" style={styles.nextCard}>

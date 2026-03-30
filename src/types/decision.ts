@@ -62,6 +62,8 @@ export interface TriageResult {
 export type ClarityMode = "single" | "compare" | "fog";
 export type ClarityQuestionKind = "deadline" | "relief" | "downside" | "longTerm";
 export type ClarityCandidateRelationship = "tasks" | "alternatives";
+export type DecisionShape = "single_action" | "option_choice" | "multiple_decisions" | "foggy_dump";
+export type DecisionGate = "fast" | "moderate" | "careful";
 
 export interface ClarityCandidate {
   id: string;
@@ -74,6 +76,7 @@ export interface ClarityCandidate {
   longTermScore: number;
   reliefScore: number;
   reversibilityScore: number;
+  decisionFitScore: number;
   compositeScore: number;
   calmingWhy: string;
 }
@@ -95,6 +98,11 @@ export interface ClarityDecisionGroup {
 export interface ClarityAnalysis {
   rawInput: string;
   mode: ClarityMode;
+  decisionShape: DecisionShape;
+  decisionGate: DecisionGate;
+  decisionLabel?: string;
+  contextKinds: string[];
+  contextHints: string[];
   summary: string;
   firstMove: ClarityCandidate;
   candidates: ClarityCandidate[];

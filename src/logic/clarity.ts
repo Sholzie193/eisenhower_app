@@ -8,11 +8,25 @@ import type {
   ClarityMode,
   ClarityQuestion,
   ClarityQuestionKind,
+  DecisionGate,
+  DecisionShape,
   DueWindow,
   ImpactArea,
   ImportanceSignal,
   TriageAnswers,
 } from "../types/decision";
+
+type ContextSignalKind =
+  | "lowEnergy"
+  | "deadlinePressure"
+  | "moneySpeed"
+  | "higherValue"
+  | "socialPressure";
+
+interface ContextSignal {
+  kind: ContextSignalKind;
+  label: string;
+}
 
 const FOG_PHRASES = [
   "don't know",
@@ -28,6 +42,7 @@ const FOG_PHRASES = [
 ];
 
 const FILLER_PREFIXES = [
+  /^do i\s+/i,
   /^also i(?:['’]m| am) deciding whether to\s+/i,
   /^also i(?:['’]m| am) trying to decide whether to\s+/i,
   /^i(?:['’]m| am) deciding whether to\s+/i,
@@ -49,6 +64,45 @@ const FILLER_PREFIXES = [
 ];
 
 const TITLE_PREFIXES = [/^focus on getting\s+/i, /^focus on\s+/i, /^getting\s+/i, /^do\s+/i];
+const OPTION_INTRO_PREFIXES = [
+  /^do i\s+/i,
+  /^should i\s+/i,
+  /^whether to\s+/i,
+  /^decide whether to\s+/i,
+  /^deciding whether to\s+/i,
+  /^trying to decide whether to\s+/i,
+  /^need to decide whether to\s+/i,
+  /^i(?:['’]m| am) deciding whether to\s+/i,
+  /^i(?:['’]m| am) trying to decide whether to\s+/i,
+];
+const CONTEXT_PATTERNS: Array<{ kind: ContextSignalKind; label: string; expression: RegExp }> = [
+  {
+    kind: "lowEnergy",
+    label: "Energy feels low right now.",
+    expression: /\b(?:hungry|hunger|tired|tiredness|exhausted|drained|fatigued|low energy|burned out|burnt out)\b/i,
+  },
+  {
+    kind: "deadlinePressure",
+    label: "There is real time pressure around this.",
+    expression:
+      /\b(?:deadline|due|today|tonight|tomorrow|urgent|asap|immediately|eod|end of day|this week|before\s+\d|by\s+\d)\b/i,
+  },
+  {
+    kind: "moneySpeed",
+    label: "Cash timing seems to matter here.",
+    expression: /\b(?:money faster|get paid faster|paid faster|receive money faster|cash faster|sooner)\b/i,
+  },
+  {
+    kind: "higherValue",
+    label: "One path appears to have higher upside.",
+    expression: /\b(?:pay more|higher paying|higher value|more value|long term)\b/i,
+  },
+  {
+    kind: "socialPressure",
+    label: "There may be relationship or work consequences here.",
+    expression: /\b(?:client|landlord|boss|team|partner|friend|family|reputation)\b/i,
+  },
+];
 
 const AREA_KEYWORDS: Record<ImpactArea, RegExp[]> = {
   money: [/\bbill\b/i, /\binvoice\b/i, /\bbudget\b/i, /\bpayment\b/i, /\bcash\b/i, /\bmoney\b/i, /\brent\b/i],
@@ -62,7 +116,7 @@ const AREA_KEYWORDS: Record<ImpactArea, RegExp[]> = {
 };
 
 const KEYWORDS = {
-  urgentToday: [/\btoday\b/i, /\btonight\b/i, /\basap\b/i, /\burgent\b/i, /\bright away\b/i, /\bimmediately\b/i, /\beod\b/i, /\bend of day\b/i],
+  urgentToday: [/\bnow\b/i, /\btoday\b/i, /\btonight\b/i, /\basap\b/i, /\burgent\b/i, /\bright away\b/i, /\bimmediately\b/i, /\beod\b/i, /\bend of day\b/i],
   urgentTomorrow: [/\btomorrow\b/i, /\bfirst thing\b/i],
   urgentWeek: [/\bthis week\b/i, /\bfriday\b/i, /\bmonday\b/i, /\btuesday\b/i, /\bwednesday\b/i, /\bthursday\b/i, /\bweekend\b/i],
   hardDeadline: [
@@ -70,11 +124,11 @@ const KEYWORDS = {
     /\bdue\s+(?:today|tonight|tomorrow|this week|this weekend|weekend|monday|tuesday|wednesday|thursday|friday|saturday|sunday|later)\b/i,
     /\b(?:by|before)\s+(?:today|tonight|tomorrow|this week|this weekend|weekend|monday|tuesday|wednesday|thursday|friday|saturday|sunday|eod|end of day|\d{1,2}(?::\d{2})?\s?(?:am|pm)?)\b/i,
   ],
-  severeDelay: [/\blandlord\b/i, /\brent\b/i, /\bclient\b/i, /\bproposal\b/i, /\binvoice\b/i, /\bhealth\b/i, /\bdoctor\b/i, /\bpay\b/i],
-  disruptiveDelay: [/\bwebsite\b/i, /\boutreach\b/i, /\badmin\b/i, /\bemail\b/i, /\bmeeting\b/i, /\bdocs?\b/i, /\bcall\b/i],
+  severeDelay: [/\blandlord\b/i, /\brent\b/i, /\binvoice\b/i, /\bhealth\b/i, /\bdoctor\b/i, /\bpay\b/i],
+  disruptiveDelay: [/\bclient\b/i, /\bproposal\b/i, /\bwebsite\b/i, /\boutreach\b/i, /\badmin\b/i, /\bemail\b/i, /\bmeeting\b/i, /\bdocs?\b/i, /\bcall\b/i],
   relief: [/\binbox\b/i, /\badmin\b/i, /\bemail\b/i, /\blandlord\b/i, /\bcall\b/i, /\bdocs?\b/i, /\breply\b/i, /\bdecision\b/i, /\brest\b/i],
   longTerm: [/\bproposal\b/i, /\bwebsite\b/i, /\bhealth\b/i, /\bexercise\b/i, /\bstrategy\b/i, /\bgoal\b/i, /\bplan\b/i],
-  easyToUndo: [/\bcall\b/i, /\bemail\b/i, /\bfollow up\b/i, /\bschedule\b/i, /\brest\b/i, /\bbook\b/i],
+  easyToUndo: [/\bcall\b/i, /\bemail\b/i, /\bsend\b/i, /\bfollow up\b/i, /\boutreach\b/i, /\bschedule\b/i, /\brest\b/i, /\bbook\b/i],
   mostlyNoise: [/\bscreenshots?\b/i, /\breorgani[sz]e\b/i, /\btidy\b/i, /\bdoomscroll\b/i, /\blater maybe\b/i],
 };
 
@@ -91,6 +145,18 @@ const dedupe = (values: string[]) => {
     }
 
     seen.add(key);
+    return true;
+  });
+};
+
+const dedupeSignals = (signals: ContextSignal[]) => {
+  const seen = new Set<string>();
+  return signals.filter((signal) => {
+    if (seen.has(signal.kind)) {
+      return false;
+    }
+
+    seen.add(signal.kind);
     return true;
   });
 };
@@ -125,6 +191,9 @@ const increaseDelayImpact = (delayImpact: TriageAnswers["delayImpact"]) => {
 const hasExplicitCompareScaffold = (value: string) =>
   /\b(decide between|which one|vs\.?|versus|whether to|should i)\b/i.test(value);
 
+const stripOptionIntro = (value: string) =>
+  OPTION_INTRO_PREFIXES.reduce((currentValue, expression) => currentValue.replace(expression, ""), value).trim();
+
 const cleanCandidate = (value: string) => {
   const withoutBullets = value.replace(/^[\s\-*•\d.)]+/, "").trim();
   const withoutPrefixes = FILLER_PREFIXES.reduce(
@@ -137,15 +206,146 @@ const cleanCandidate = (value: string) => {
 
 const toSentenceCase = (value: string) => value.charAt(0).toUpperCase() + value.slice(1);
 
+const removeWhyClause = (value: string) => value.replace(/\s+(?:because|since|so that|so|as)\s+.+$/i, "").trim();
+
 const buildCandidateTitle = (value: string) => {
   const cleaned = cleanCandidate(value);
-  const withoutContext = cleaned.replace(/\s+(?:because|since|so that|so|as)\s+.+$/i, "").trim();
+  const withoutContext = removeWhyClause(cleaned);
   const simplified = TITLE_PREFIXES.reduce(
     (currentValue, expression) => currentValue.replace(expression, ""),
     withoutContext
   ).trim();
 
   return toSentenceCase((simplified || withoutContext || cleaned).replace(/[.?!]+$/g, "").trim());
+};
+
+const extractContextSignals = (rawInput: string) =>
+  dedupeSignals(
+    CONTEXT_PATTERNS.filter(({ expression }) => expression.test(rawInput)).map(({ kind, label }) => ({
+      kind,
+      label,
+    }))
+  );
+
+const inferSharedActionBase = (leftOption: string) => {
+  const withoutContext = removeWhyClause(stripOptionIntro(leftOption));
+  const withoutTimeAnchor = withoutContext
+    .replace(/\s+\b(?:during|after|before|around|at|on|in)\b.+$/i, "")
+    .replace(/\s+\b(?:now|later|today|tomorrow|tonight)\b.*$/i, "")
+    .trim();
+
+  return withoutTimeAnchor || withoutContext;
+};
+
+const inferInheritedTiming = (leftOption: string, rightOption: string) => {
+  const normalizedRight = rightOption.toLowerCase();
+
+  if (/^after\b/.test(normalizedRight)) {
+    if (/\bduring (?:my\s+)?lunch(?: break)?\b/i.test(leftOption)) {
+      return "after lunch";
+    }
+
+    return "later";
+  }
+
+  if (/^later\b/.test(normalizedRight)) {
+    return "later";
+  }
+
+  if (/^tomorrow\b/.test(normalizedRight)) {
+    return "tomorrow";
+  }
+
+  if (/^now\b/.test(normalizedRight)) {
+    return "now";
+  }
+
+  return rightOption;
+};
+
+const normalizeInheritedOption = (leftOption: string, rightOption: string) => {
+  const cleanedRight = cleanCandidate(rightOption)
+    .replace(/^(?:(?:i can|can|i could|could|i should|should)\s+)?(?:do it|do this|it|this)\s+/i, "")
+    .trim();
+
+  if (!cleanedRight) {
+    return cleanCandidate(leftOption);
+  }
+
+  if (/^(?:after|later|tomorrow|tonight|today|now|before|during)\b/i.test(cleanedRight)) {
+    const baseAction = inferSharedActionBase(leftOption);
+    const inheritedTiming = inferInheritedTiming(leftOption, cleanedRight);
+    return [baseAction, inheritedTiming].filter(Boolean).join(" ").trim();
+  }
+
+  return cleanedRight;
+};
+
+const extractBinaryOptionTexts = (rawInput: string) => {
+  const normalized = rawInput
+    .replace(/[•·]/g, "\n")
+    .replace(/\s+(?:vs\.?|versus)\s+/gi, " or ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (/[,\n;]/.test(normalized)) {
+    return null;
+  }
+
+  if (!(hasExplicitCompareScaffold(normalized) || /\s+\bor\b\s+/i.test(normalized))) {
+    return null;
+  }
+
+  const parts = normalized.split(/\s+\bor\b\s+/i);
+  if (parts.length !== 2) {
+    return null;
+  }
+
+  const left = cleanCandidate(parts[0]);
+  const right = normalizeInheritedOption(left, parts[1]);
+  const options = dedupe([left, right]).filter((value) => value.length > 2);
+
+  return options.length === 2 ? options : null;
+};
+
+const getContextAlignmentScore = (text: string, contextSignals: ContextSignal[]) => {
+  let score = 0;
+
+  contextSignals.forEach((signal) => {
+    if (signal.kind === "lowEnergy") {
+      if (/\b(after lunch|after|later|rest|break|tomorrow)\b/i.test(text)) {
+        score += 0.95;
+      }
+
+      if (/\b(during lunch|during my lunch break|skip lunch|now|right away|immediately)\b/i.test(text)) {
+        score -= 0.95;
+      }
+    }
+
+    if (signal.kind === "deadlinePressure") {
+      if (/\b(now|today|right away|immediately|before|during)\b/i.test(text)) {
+        score += 0.85;
+      }
+
+      if (/\b(after|later|tomorrow)\b/i.test(text)) {
+        score -= 0.65;
+      }
+    }
+
+    if (signal.kind === "moneySpeed" && /\b(faster|sooner|cash|receive money faster|get paid faster)\b/i.test(text)) {
+      score += 1.05;
+    }
+
+    if (signal.kind === "higherValue" && /\b(pay more|higher paying|higher value|long term)\b/i.test(text)) {
+      score += 0.7;
+    }
+
+    if (signal.kind === "socialPressure" && /\b(client|landlord|boss|team|partner)\b/i.test(text)) {
+      score += 0.35;
+    }
+  });
+
+  return clamp(score, -2, 2);
 };
 
 const splitDecisionSegments = (rawInput: string) =>
@@ -196,6 +396,11 @@ const detectDecisionGroups = (rawInput: string): ClarityDecisionGroup[] =>
     .filter((group): group is ClarityDecisionGroup => Boolean(group));
 
 const extractCandidateTexts = (rawInput: string) => {
+  const binaryOptions = extractBinaryOptionTexts(rawInput);
+  if (binaryOptions) {
+    return binaryOptions;
+  }
+
   const normalized = rawInput
     .replace(/[•·]/g, "\n")
     .replace(/\s+(?:vs\.?|versus)\s+/gi, ", ")
@@ -338,16 +543,73 @@ const getLongTermScore = (text: string, impactAreas: ImpactArea[]) => {
 };
 
 const getReversibilityScore = (text: string) => {
-  let score = hasAnyMatch(text, KEYWORDS.easyToUndo) ? 2.4 : 1.2;
-  if (/proposal|website|major|rebuild/i.test(text)) {
-    score -= 0.6;
+  let score = hasAnyMatch(text, KEYWORDS.easyToUndo) ? 2.6 : 1.4;
+  if (/\b(quit|resign|break up|move out|sign|submit final|fire|hire|sell|buy|commit)\b/i.test(text)) {
+    score -= 1.1;
+  }
+
+  if (/\b(major rebuild|rebuild|irreversible|permanent)\b/i.test(text)) {
+    score -= 0.8;
   }
 
   return clamp(score);
 };
 
-const buildCalmingWhy = (candidate: Pick<ClarityCandidate, "triageResult" | "reliefScore">) => {
-  const { triageResult, reliefScore } = candidate;
+const getDecisionGate = (
+  candidates: Pick<ClarityCandidate, "delayCostScore" | "reversibilityScore">[],
+  decisionShape: DecisionShape
+): DecisionGate => {
+  const highestDelay = Math.max(...candidates.map((candidate) => candidate.delayCostScore));
+  const lowestReversibility = Math.min(...candidates.map((candidate) => candidate.reversibilityScore));
+
+  if (decisionShape === "foggy_dump" || highestDelay >= 3.4 || lowestReversibility <= 1.1) {
+    return "careful";
+  }
+
+  if (highestDelay <= 2.8 && lowestReversibility >= 2.1) {
+    return "fast";
+  }
+
+  return "moderate";
+};
+
+const buildCalmingWhy = (
+  candidate: Pick<
+    ClarityCandidate,
+    "triageResult" | "reliefScore" | "reversibilityScore" | "delayCostScore" | "sourceText" | "title"
+  >,
+  options: {
+    decisionShape: DecisionShape;
+    decisionGate: DecisionGate;
+    contextSignals: ContextSignal[];
+  }
+) => {
+  const { triageResult, reliefScore, reversibilityScore, delayCostScore, sourceText } = candidate;
+  const lowEnergyContext = options.contextSignals.some((signal) => signal.kind === "lowEnergy");
+  const deadlineContext = options.contextSignals.some((signal) => signal.kind === "deadlinePressure");
+
+  if (options.decisionShape === "option_choice") {
+    if (
+      lowEnergyContext &&
+      /\b(after lunch|after|later|rest|break)\b/i.test(sourceText) &&
+      delayCostScore <= 2.8 &&
+      reversibilityScore >= 2.1
+    ) {
+      return "This protects your energy, the downside of waiting looks low, and the choice is easy to adjust later if needed.";
+    }
+
+    if (deadlineContext && /\b(now|today|right away|immediately)\b/i.test(sourceText)) {
+      return "This keeps pace with the time pressure while still staying relatively easy to adjust.";
+    }
+
+    if (reversibilityScore >= 2.2 && delayCostScore <= 2.8) {
+      return "This is easy to adjust later, so the cleaner and less stressful path is usually the better first move.";
+    }
+
+    if (delayCostScore >= 2.7) {
+      return "This looks like the safer option because waiting carries enough downside to matter.";
+    }
+  }
 
   if (triageResult.quadrant === "doNow") {
     return reliefScore >= 2.5
@@ -356,7 +618,9 @@ const buildCalmingWhy = (candidate: Pick<ClarityCandidate, "triageResult" | "rel
   }
 
   if (triageResult.quadrant === "schedule") {
-    return "This matters, but it does not need to crowd the next few minutes.";
+    return options.decisionGate === "careful"
+      ? "This matters, but it is better handled deliberately than under rushed pressure."
+      : "This matters, but it does not need to crowd the next few minutes.";
   }
 
   if (triageResult.quadrant === "delegate") {
@@ -366,7 +630,7 @@ const buildCalmingWhy = (candidate: Pick<ClarityCandidate, "triageResult" | "rel
   return "This can stay lighter for now without creating much downside.";
 };
 
-const buildCandidate = (sourceText: string, index: number): ClarityCandidate => {
+const buildCandidate = (sourceText: string, index: number, contextSignals: ContextSignal[] = []): ClarityCandidate => {
   const normalizedText = sourceText.toLowerCase();
   const impactAreas = inferImpactAreas(normalizedText);
   const due = getDueWindow(normalizedText);
@@ -390,6 +654,7 @@ const buildCandidate = (sourceText: string, index: number): ClarityCandidate => 
   const reliefScore = getMentalReliefScore(normalizedText);
   const longTermScore = getLongTermScore(normalizedText, impactAreas);
   const reversibilityScore = getReversibilityScore(normalizedText);
+  const decisionFitScore = getContextAlignmentScore(normalizedText, contextSignals);
   const compositeScore = computeCompositeScore(
     triageResult,
     delayCostScore,
@@ -411,14 +676,12 @@ const buildCandidate = (sourceText: string, index: number): ClarityCandidate => 
     longTermScore,
     reliefScore,
     reversibilityScore,
-    compositeScore,
+    decisionFitScore,
+    compositeScore: Number((compositeScore + decisionFitScore).toFixed(2)),
     calmingWhy: "",
   };
 
-  return {
-    ...candidate,
-    calmingWhy: buildCalmingWhy(candidate),
-  };
+  return candidate;
 };
 
 const refreshCandidate = (
@@ -429,6 +692,7 @@ const refreshCandidate = (
     reliefScore?: number;
     longTermScore?: number;
     reversibilityScore?: number;
+    decisionFitScore?: number;
   }
 ) => {
   const nextImpactAreas = patch.triageAnswers?.impactAreas ?? candidate.triageAnswers.impactAreas;
@@ -442,6 +706,7 @@ const refreshCandidate = (
   const reliefScore = patch.reliefScore ?? candidate.reliefScore;
   const longTermScore = patch.longTermScore ?? candidate.longTermScore;
   const reversibilityScore = patch.reversibilityScore ?? candidate.reversibilityScore;
+  const decisionFitScore = patch.decisionFitScore ?? candidate.decisionFitScore;
 
   const nextCandidate: ClarityCandidate = {
     ...candidate,
@@ -451,19 +716,16 @@ const refreshCandidate = (
     reliefScore,
     longTermScore,
     reversibilityScore,
-    compositeScore: computeCompositeScore(
-      triageResult,
-      delayCostScore,
-      reliefScore,
-      longTermScore,
-      reversibilityScore
+    decisionFitScore,
+    compositeScore: Number(
+      (
+        computeCompositeScore(triageResult, delayCostScore, reliefScore, longTermScore, reversibilityScore) +
+        decisionFitScore
+      ).toFixed(2)
     ),
   };
 
-  return {
-    ...nextCandidate,
-    calmingWhy: buildCalmingWhy(nextCandidate),
-  };
+  return nextCandidate;
 };
 
 const sortCandidates = (candidates: ClarityCandidate[]) =>
@@ -501,6 +763,41 @@ const getQuestionPrompt = (kind: ClarityQuestionKind) => {
   }
 };
 
+const getDecisionShape = (
+  mode: ClarityMode,
+  candidateRelationship: ClarityCandidateRelationship,
+  decisionGroups: ClarityDecisionGroup[],
+  activeDecisionGroupId?: string
+): DecisionShape => {
+  if (decisionGroups.length > 1 && !activeDecisionGroupId) {
+    return "multiple_decisions";
+  }
+
+  if (candidateRelationship === "alternatives" && mode !== "single") {
+    return "option_choice";
+  }
+
+  if (mode === "fog") {
+    return "foggy_dump";
+  }
+
+  return "single_action";
+};
+
+const buildDecisionLabel = (decisionShape: DecisionShape, candidateTexts: string[]) => {
+  if (decisionShape !== "option_choice" || candidateTexts.length < 2) {
+    return undefined;
+  }
+
+  const titles = candidateTexts.map(buildCandidateTitle);
+
+  if (titles.length === 2) {
+    return `${titles[0]} or ${titles[1]}?`;
+  }
+
+  return `Which is the cleaner move: ${titles.slice(0, 3).join(", ")}?`;
+};
+
 const getSummary = (mode: ClarityMode, candidateCount: number, narrowedFromCount?: number) => {
   if (mode === "single") {
     return "One thing came through clearly, so the app kept the answer direct.";
@@ -527,20 +824,34 @@ const finalizeAnalysis = (
     candidateRelationship?: ClarityCandidateRelationship;
     decisionGroups?: ClarityDecisionGroup[];
     activeDecisionGroupId?: string;
+    contextSignals?: ContextSignal[];
+    decisionLabelTexts?: string[];
   }
 ): ClarityAnalysis => {
   const sortedCandidates = sortCandidates(candidates);
-  const topCandidates = sortedCandidates.slice(0, 2);
   const candidateRelationship = options?.candidateRelationship ?? "tasks";
   const decisionGroups = options?.decisionGroups ?? [];
   const activeDecisionGroupId = options?.activeDecisionGroupId;
+  const contextSignals = options?.contextSignals ?? [];
+  const decisionShape = getDecisionShape(mode, candidateRelationship, decisionGroups, activeDecisionGroupId);
+  const decisionGate = getDecisionGate(sortedCandidates, decisionShape);
+  const enrichedCandidates = sortedCandidates.map((candidate) => ({
+    ...candidate,
+    calmingWhy: buildCalmingWhy(candidate, {
+      decisionShape,
+      decisionGate,
+      contextSignals,
+    }),
+  }));
+  const topCandidates = enrichedCandidates.slice(0, 2);
   const scoreGap =
     topCandidates.length === 2 ? topCandidates[0].compositeScore - topCandidates[1].compositeScore : 9;
   const shouldAskQuestion =
     !selectedId &&
     mode !== "single" &&
     topCandidates.length === 2 &&
-    scoreGap < 0.95 &&
+    scoreGap < (decisionGate === "careful" ? 1.25 : 0.95) &&
+    decisionGate !== "fast" &&
     !(decisionGroups.length > 1 && !activeDecisionGroupId);
 
   const question: ClarityQuestion | null = shouldAskQuestion
@@ -554,15 +865,24 @@ const finalizeAnalysis = (
   return {
     rawInput,
     mode,
+    decisionShape,
+    decisionGate,
+    decisionLabel: buildDecisionLabel(decisionShape, options?.decisionLabelTexts ?? candidates.map((candidate) => candidate.title)),
+    contextKinds: contextSignals.map((signal) => signal.kind),
+    contextHints: contextSignals.map((signal) => signal.label),
     summary:
       decisionGroups.length > 1 && !activeDecisionGroupId
         ? `I see ${decisionGroups.length} separate decisions here. Pick the one you want to clear up first.`
+        : decisionShape === "option_choice"
+          ? decisionGate === "fast"
+            ? "This looks like a contained choice, so the app kept the answer light and direct."
+            : "This looks like a real option choice, so the app weighed the options before recommending the cleaner move."
         : decisionGroups.length > 1 && activeDecisionGroupId
           ? "This pass is keeping one decision in view so the options stay comparable."
-          : getSummary(mode, sortedCandidates.length, narrowedFromCount),
-    firstMove: sortedCandidates[0],
-    candidates: sortedCandidates,
-    waiting: sortedCandidates.slice(1),
+          : getSummary(mode, enrichedCandidates.length, narrowedFromCount),
+    firstMove: enrichedCandidates[0],
+    candidates: enrichedCandidates,
+    waiting: enrichedCandidates.slice(1),
     question,
     candidateRelationship,
     decisionGroups,
@@ -580,6 +900,7 @@ export const analyzeClarityInput = (rawInput: string, selectedDecisionGroupId?: 
   const previewDecisionGroup = !selectedDecisionGroup && decisionGroups.length > 1 ? decisionGroups[0] : undefined;
   const analysisDecisionGroup = selectedDecisionGroup ?? previewDecisionGroup;
   const analysisInput = analysisDecisionGroup ? analysisDecisionGroup.sourceText : rawInput;
+  const contextSignals = extractContextSignals(analysisInput);
   const extractedCandidates = analysisDecisionGroup
     ? analysisDecisionGroup.candidateTexts
     : extractCandidateTexts(analysisInput);
@@ -587,7 +908,9 @@ export const analyzeClarityInput = (rawInput: string, selectedDecisionGroupId?: 
   const containsFogLanguage = FOG_PHRASES.some((phrase) => lowerInput.includes(phrase));
   const isParagraphLike = analysisInput.split(/\s+/).length > 18 || /[.?!]/.test(analysisInput);
   const narrowedCandidates = extractedCandidates.slice(0, 6);
-  const builtCandidates = narrowedCandidates.map(buildCandidate);
+  const builtCandidates = narrowedCandidates.map((candidateText, index) =>
+    buildCandidate(candidateText, index, contextSignals)
+  );
   const sortedCandidates = sortCandidates(builtCandidates);
   const compareCandidates = sortedCandidates.slice(0, Math.min(sortedCandidates.length, 4));
   const candidateRelationship = analysisDecisionGroup
@@ -613,6 +936,8 @@ export const analyzeClarityInput = (rawInput: string, selectedDecisionGroupId?: 
       candidateRelationship,
       decisionGroups,
       activeDecisionGroupId: selectedDecisionGroup?.id,
+      contextSignals,
+      decisionLabelTexts: narrowedCandidates,
     }
   );
 };
@@ -671,6 +996,11 @@ export const answerClarityQuestion = (
       : candidate
   );
 
+  const contextSignals = analysis.contextKinds.map((kind, index) => ({
+    kind: kind as ContextSignalKind,
+    label: analysis.contextHints[index] ?? "",
+  }));
+
   return finalizeAnalysis(
     analysis.rawInput,
     analysis.mode,
@@ -681,6 +1011,7 @@ export const answerClarityQuestion = (
       candidateRelationship: analysis.candidateRelationship,
       decisionGroups: analysis.decisionGroups,
       activeDecisionGroupId: analysis.activeDecisionGroupId,
+      contextSignals,
     }
   );
 };

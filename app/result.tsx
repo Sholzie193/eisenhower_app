@@ -14,7 +14,17 @@ import type { ClarityAnalysis, ClarityCandidate } from "../src/types/decision";
 
 const getClarityLabel = (analysis: ClarityAnalysis, candidate: ClarityCandidate) => {
   if (analysis.decisionShape === "option_choice") {
-    return "Best first option";
+    switch (candidate.triageResult.quadrant) {
+      case "doNow":
+        return "Best first option";
+      case "schedule":
+        return "Best next option";
+      case "delegate":
+        return "Lighter-touch option";
+      case "eliminate":
+      default:
+        return "Lower-pressure option";
+    }
   }
 
   switch (candidate.triageResult.quadrant) {
@@ -27,6 +37,70 @@ const getClarityLabel = (analysis: ClarityAnalysis, candidate: ClarityCandidate)
     case "eliminate":
     default:
       return "Let this stay lighter";
+  }
+};
+
+const getActionHeading = (analysis: ClarityAnalysis, candidate: ClarityCandidate) => {
+  if (analysis.decisionShape === "option_choice") {
+    switch (candidate.triageResult.quadrant) {
+      case "doNow":
+        return "What to do now";
+      case "schedule":
+        return "What to do next";
+      case "delegate":
+        return "How to handle it";
+      case "eliminate":
+      default:
+        return "What to do instead";
+    }
+  }
+
+  switch (candidate.triageResult.quadrant) {
+    case "schedule":
+      return "What to do next";
+    case "delegate":
+      return "How to handle it";
+    case "eliminate":
+      return "What to do instead";
+    case "doNow":
+    default:
+      return "What to do now";
+  }
+};
+
+const getDisplayedRecommendation = (analysis: ClarityAnalysis, candidate: ClarityCandidate) => {
+  if (analysis.decisionShape !== "option_choice") {
+    return candidate.triageResult.recommendation;
+  }
+
+  switch (candidate.triageResult.quadrant) {
+    case "doNow":
+      return "Use this option first while it still has the clearest advantage.";
+    case "schedule":
+      return "Use this as the cleaner next option, then give it a deliberate slot.";
+    case "delegate":
+      return "Use this as the lighter-touch option so you do not overcommit.";
+    case "eliminate":
+    default:
+      return "Use this as the lower-pressure default and keep the other option available.";
+  }
+};
+
+const getDisplayedNextStep = (analysis: ClarityAnalysis, candidate: ClarityCandidate) => {
+  if (analysis.decisionShape !== "option_choice") {
+    return candidate.triageResult.nextStep;
+  }
+
+  switch (candidate.triageResult.quadrant) {
+    case "doNow":
+      return candidate.triageResult.nextStep;
+    case "schedule":
+      return "Choose this direction now, then block a calm time for the actual move.";
+    case "delegate":
+      return "Keep the effort light and avoid turning this into a heavier commitment than it needs to be.";
+    case "eliminate":
+    default:
+      return "Treat this as the simpler default for now, and revisit only if the tradeoff changes.";
   }
 };
 
@@ -85,10 +159,6 @@ const getAdaptiveWaitCopy = (analysis: ClarityAnalysis, candidate: ClarityCandid
 };
 
 const getModeHeading = (analysis: ClarityAnalysis) => {
-  if (analysis.decisionGroups.length > 1 && !analysis.activeDecisionGroupId) {
-    return "Let’s separate the decisions.";
-  }
-
   if (analysis.decisionShape === "option_choice") {
     return "Here’s the cleaner option.";
   }
@@ -122,6 +192,9 @@ function ClarityResultScreen() {
   }
 
   const { firstMove, question, waiting } = claritySession;
+  const currentDecisionGroup =
+    claritySession.decisionGroups.find((group) => group.id === claritySession.activeDecisionGroupId) ??
+    (claritySession.decisionGroups.length === 1 ? claritySession.decisionGroups[0] : undefined);
   const remainingDecisionGroups = claritySession.decisionGroups.filter(
     (group) => group.id !== claritySession.activeDecisionGroupId
   );
@@ -169,9 +242,10 @@ function ClarityResultScreen() {
                   },
                 ]}
               >
-                <Text style={[styles.questionOptionText, { color: theme.colors.text }]}>
-                  {group.label}
-                </Text>
+                <Text style={[styles.questionOptionText, { color: theme.colors.text }]}>{group.label}</Text>
+                {group.tradeoffHint ? (
+                  <Text style={[styles.questionHint, { color: theme.colors.textSoft }]}>{group.tradeoffHint}</Text>
+                ) : null}
               </Pressable>
             ))}
           </View>
@@ -222,6 +296,11 @@ function ClarityResultScreen() {
                 Decision: {claritySession.decisionLabel}
               </Text>
             ) : null}
+            {currentDecisionGroup?.tradeoffHint ? (
+              <Text style={[styles.waitFootnote, { color: theme.colors.textSoft }]}>
+                {currentDecisionGroup.tradeoffHint}
+              </Text>
+            ) : null}
             <Text style={[styles.primaryTitle, { color: theme.colors.text }]}>{firstMove.title}</Text>
             <Text style={[styles.primaryWhy, { color: theme.colors.textMuted }]}>{firstMove.calmingWhy}</Text>
             {claritySession.contextHints.length ? (
@@ -232,9 +311,15 @@ function ClarityResultScreen() {
           </NeuCard>
 
           <NeuCard variant="flat" style={styles.nextCard}>
-            <Text style={[styles.label, { color: theme.colors.textSoft }]}>What to do now</Text>
-            <Text style={[styles.nextMove, { color: theme.colors.text }]}>{firstMove.triageResult.recommendation}</Text>
-            <Text style={[styles.nextStep, { color: theme.colors.textMuted }]}>{firstMove.triageResult.nextStep}</Text>
+            <Text style={[styles.label, { color: theme.colors.textSoft }]}>
+              {getActionHeading(claritySession, firstMove)}
+            </Text>
+            <Text style={[styles.nextMove, { color: theme.colors.text }]}>
+              {getDisplayedRecommendation(claritySession, firstMove)}
+            </Text>
+            <Text style={[styles.nextStep, { color: theme.colors.textMuted }]}>
+              {getDisplayedNextStep(claritySession, firstMove)}
+            </Text>
           </NeuCard>
 
           <NeuCard variant="flat" style={styles.waitCard}>

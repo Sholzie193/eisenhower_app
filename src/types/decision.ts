@@ -91,6 +91,7 @@ export interface ClarityQuestion {
 export interface ClarityDecisionGroup {
   id: string;
   label: string;
+  tradeoffHint?: string;
   sourceText: string;
   candidateTexts: string[];
   candidateRelationship: ClarityCandidateRelationship;

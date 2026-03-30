@@ -208,6 +208,28 @@ const toSentenceCase = (value: string) => value.charAt(0).toUpperCase() + value.
 
 const removeWhyClause = (value: string) => value.replace(/\s+(?:because|since|so that|so|as)\s+.+$/i, "").trim();
 
+const naturalizeOptionTitle = (value: string) => {
+  let nextValue = value
+    .replace(/\binstead\b/gi, "")
+    .replace(/\s+for outreach\b/i, "")
+    .replace(/^send (?:a )?cold email\b/i, "cold email")
+    .replace(/^do cold email\b/i, "cold email")
+    .replace(/^send (?:a )?cold call\b/i, "cold calling")
+    .replace(/^do cold calling\b/i, "cold calling")
+    .replace(/^cold calling for outreach\b/i, "cold calling")
+    .replace(/^prioriti[sz]e\s+(american|us|dubai|uk|eu|local|international)\s+clients\b/i, "$1 clients")
+    .replace(/^prioriti[sz]e\s+/i, "")
+    .replace(/^focus on\s+/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (/^(american|us|dubai|uk|eu|local|international)\s+clients\b/i.test(nextValue)) {
+    return toSentenceCase(nextValue);
+  }
+
+  return toSentenceCase(nextValue);
+};
+
 const buildCandidateTitle = (value: string) => {
   const cleaned = cleanCandidate(value);
   const withoutContext = removeWhyClause(cleaned);
@@ -216,7 +238,7 @@ const buildCandidateTitle = (value: string) => {
     withoutContext
   ).trim();
 
-  return toSentenceCase((simplified || withoutContext || cleaned).replace(/[.?!]+$/g, "").trim());
+  return naturalizeOptionTitle((simplified || withoutContext || cleaned).replace(/[.?!]+$/g, "").trim());
 };
 
 const extractContextSignals = (rawInput: string) =>
@@ -370,14 +392,61 @@ const inferCandidateRelationship = (
     ? "alternatives"
     : "tasks";
 
-const buildDecisionGroupLabel = (candidateTexts: string[]) => {
+const isShortNounLikeOption = (value: string) =>
+  !/^(send|call|email|fix|rest|book|schedule|wait|move|take|protect|keep|follow up|reply|start)\b/i.test(
+    value
+  ) && value.split(/\s+/).length <= 4;
+
+const getOptionJoiner = (titles: string[]) =>
+  titles.length === 2 && titles.every((title) => isShortNounLikeOption(title)) ? "vs" : "or";
+
+const buildTradeoffHint = (sourceText: string, candidateTexts: string[]) => {
+  const normalized = sourceText.toLowerCase();
+  const titles = candidateTexts.map(buildCandidateTitle);
+
+  if (
+    /pay more|higher paying|higher value/i.test(normalized) &&
+    /receive money faster|get paid faster|paid faster|money faster|cash faster/i.test(normalized)
+  ) {
+    return "Higher pay vs faster payment.";
+  }
+
+  if (
+    /during (?:my\s+)?lunch(?: break)?/i.test(normalized) &&
+    /\bafter\b/i.test(normalized) &&
+    /hungry|tired|low energy/i.test(normalized)
+  ) {
+    return "Sending sooner vs protecting your energy.";
+  }
+
+  if (/\bnow\b/i.test(normalized) && /\b(?:later|after|tomorrow)\b/i.test(normalized)) {
+    return "Act sooner vs wait a bit.";
+  }
+
+  if (/\bprioriti[sz]e\b/i.test(normalized) && /\bkeep it broad\b/i.test(normalized)) {
+    return "Focused niche vs broader reach.";
+  }
+
+  if (titles.length === 2 && /\bclients\b/i.test(titles[0]) && /\bclients\b/i.test(titles[1])) {
+    return `${titles[0]} vs ${titles[1]}.`;
+  }
+
+  return undefined;
+};
+
+const buildDecisionGroupLabel = (candidateTexts: string[], sourceText: string) => {
   const titles = candidateTexts.map(buildCandidateTitle);
   if (titles.length <= 1) {
     return titles[0] ?? "This decision";
   }
 
   if (titles.length === 2) {
-    return `${titles[0]} or ${titles[1]}`;
+    return `${titles[0]} ${getOptionJoiner(titles)} ${titles[1]}`;
+  }
+
+  const tradeoffHint = buildTradeoffHint(sourceText, candidateTexts);
+  if (tradeoffHint && / vs /i.test(tradeoffHint)) {
+    return tradeoffHint.replace(/\.$/, "");
   }
 
   return `${titles.slice(0, 2).join(", ")}, and ${titles[2]}`;
@@ -397,10 +466,13 @@ const detectDecisionGroups = (rawInput: string): ClarityDecisionGroup[] =>
 
       return {
         id: `decision-group-${index + 1}`,
-        label: buildDecisionGroupLabel(candidateTexts),
+        label: buildDecisionGroupLabel(candidateTexts, segment),
         sourceText: segment.replace(/[.?!]+$/g, "").trim(),
         candidateTexts,
         candidateRelationship: relationship,
+        ...(buildTradeoffHint(segment, candidateTexts)
+          ? { tradeoffHint: buildTradeoffHint(segment, candidateTexts) }
+          : {}),
       };
     })
     .filter((group): group is ClarityDecisionGroup => Boolean(group));
@@ -810,15 +882,26 @@ const getDecisionShape = (
   return "single_action";
 };
 
-const buildDecisionLabel = (decisionShape: DecisionShape, candidateTexts: string[]) => {
+const buildDecisionLabel = (
+  decisionShape: DecisionShape,
+  candidateTexts: string[],
+  activeDecisionGroup?: ClarityDecisionGroup
+) => {
   if (decisionShape !== "option_choice" || candidateTexts.length < 2) {
     return undefined;
   }
 
+  if (activeDecisionGroup?.label) {
+    return activeDecisionGroup.label.includes("?") ? activeDecisionGroup.label : `${activeDecisionGroup.label}?`;
+  }
+
   const titles = candidateTexts.map(buildCandidateTitle);
+  const tradeoffHint = buildTradeoffHint(candidateTexts.join(" "), candidateTexts);
 
   if (titles.length === 2) {
-    return `${titles[0]} or ${titles[1]}?`;
+    return tradeoffHint && / vs /i.test(tradeoffHint)
+      ? `${tradeoffHint.replace(/\.$/, "")}?`
+      : `${titles[0]} ${getOptionJoiner(titles)} ${titles[1]}?`;
   }
 
   return `Which is the cleaner move: ${titles.slice(0, 3).join(", ")}?`;
@@ -858,6 +941,7 @@ const finalizeAnalysis = (
   const candidateRelationship = options?.candidateRelationship ?? "tasks";
   const decisionGroups = options?.decisionGroups ?? [];
   const activeDecisionGroupId = options?.activeDecisionGroupId;
+  const activeDecisionGroup = decisionGroups.find((group) => group.id === activeDecisionGroupId);
   const contextSignals = options?.contextSignals ?? [];
   const decisionShape = getDecisionShape(mode, candidateRelationship, decisionGroups, activeDecisionGroupId);
   const decisionGate = getDecisionGate(sortedCandidates, decisionShape);
@@ -893,7 +977,11 @@ const finalizeAnalysis = (
     mode,
     decisionShape,
     decisionGate,
-    decisionLabel: buildDecisionLabel(decisionShape, options?.decisionLabelTexts ?? candidates.map((candidate) => candidate.title)),
+    decisionLabel: buildDecisionLabel(
+      decisionShape,
+      options?.decisionLabelTexts ?? candidates.map((candidate) => candidate.title),
+      activeDecisionGroup
+    ),
     contextKinds: contextSignals.map((signal) => signal.kind),
     contextHints: contextSignals.map((signal) => signal.label),
     summary:

@@ -81,6 +81,44 @@ const OPTION_INTRO_PREFIXES = [
   /^i(?:['’]m| am) (?:also\s+)?(?:still )?deciding whether (?:to|i should)\s+/i,
   /^i(?:['’]m| am) (?:also\s+)?(?:still )?trying to decide whether (?:to|i should)\s+/i,
 ];
+const META_LANGUAGE_PATTERNS = [
+  /\b(?:best|cleaner)\s+(?:first|next)\s+option\b/i,
+  /\bwhat should wait\b/i,
+  /\bwhat to do (?:now|next|instead)\b/i,
+  /\bhow to handle it\b/i,
+  /\bhandle first\b/i,
+  /\bfirst move\b/i,
+  /\bcan wait\b/i,
+  /^\s*(?:what|which|how)\s+/i,
+];
+const CONTEXT_ONLY_PATTERNS = [
+  /^(?:but\s+)?i(?:['’]m| am)\s+(?:mentally\s+)?(?:tired|hungry|exhausted|drained|fatigued|low energy|burned out|burnt out)\b/i,
+  /^\s*(?:but\s+)?money\b.+\b(?:would help|helps)\b/i,
+  /\bwould help me right now\b/i,
+  /\bbefore i feel good about it\b/i,
+  /\bi feel good about it\b/i,
+  /\bit would be better if\b/i,
+  /^\s*(?:because|since|as)\b/i,
+];
+const ACTION_VERB_PATTERNS = [
+  /\b(?:call|email|send|fix|finish|rest|book|schedule|wait|reply|follow up|cold email|cold call|cold calling|clean up|cleanup|prioriti[sz]e|focus on|keep|switch|choose|pay|invoice|ship|submit|review|reach out|outreach|delegate|automate|reduce|ignore|quit|resign|sign|buy|sell|move|start|stop)\b/i,
+];
+const OPTION_NOUN_PATTERNS = [
+  /\bclients?\b/i,
+  /\bproposal\b/i,
+  /\bwebsite\b/i,
+  /\boutreach\b/i,
+  /\bemail\b/i,
+  /\bcold email\b/i,
+  /\bcold calling\b/i,
+  /\bcalling\b/i,
+  /\badmin\b/i,
+  /\blandlord\b/i,
+  /\binvoice\b/i,
+  /\bmeeting\b/i,
+  /\brest\b/i,
+  /\bbreak\b/i,
+];
 const CONTEXT_PATTERNS: Array<{ kind: ContextSignalKind; label: string; expression: RegExp }> = [
   {
     kind: "lowEnergy",
@@ -359,7 +397,7 @@ const extractBinaryOptionTexts = (rawInput: string) => {
 
   const left = cleanCandidate(parts[0]);
   const right = normalizeInheritedOption(left, parts[1]);
-  const options = dedupe([left, right]).filter((value) => value.length > 2);
+  const options = filterEligibleCandidates([left, right], normalized, "alternatives");
 
   return options.length === 2 ? options : null;
 };
@@ -428,6 +466,89 @@ const inferCandidateRelationship = (
   candidateTexts.length > 1 && (hasExplicitCompareScaffold(sourceText) || /\s+\bor\b\s+/i.test(sourceText))
     ? "alternatives"
     : "tasks";
+
+const isMetaLanguage = (value: string) => META_LANGUAGE_PATTERNS.some((pattern) => pattern.test(value));
+
+const isContextOnlyFragment = (value: string) => CONTEXT_ONLY_PATTERNS.some((pattern) => pattern.test(value));
+
+const hasActionVerb = (value: string) => ACTION_VERB_PATTERNS.some((pattern) => pattern.test(value));
+
+const hasOptionNoun = (value: string) => OPTION_NOUN_PATTERNS.some((pattern) => pattern.test(value));
+
+const isEligibleCandidate = (
+  value: string,
+  relationship: ClarityCandidateRelationship,
+  sourceText: string
+) => {
+  const cleaned = cleanCandidate(value);
+  const normalized = cleaned.toLowerCase();
+
+  if (!cleaned || cleaned.length <= 2) {
+    return false;
+  }
+
+  if (isMetaLanguage(cleaned) || isContextOnlyFragment(cleaned)) {
+    return false;
+  }
+
+  if (
+    /\b(?:would help|helps me right now|should wait|can wait|feel good about it|mentally tired|very hungry|tired right now)\b/i.test(
+      cleaned
+    )
+  ) {
+    return false;
+  }
+
+  if (hasActionVerb(cleaned)) {
+    return true;
+  }
+
+  if (relationship === "alternatives") {
+    if (
+      hasOptionNoun(cleaned) &&
+      !/^(?:but\s+)?(?:i|it|this|that)\b/i.test(normalized) &&
+      !/\b(?:would|could|should|might)\b/i.test(normalized)
+    ) {
+      return true;
+    }
+
+    if (/\b(?:now|later|today|tomorrow|after lunch|before lunch|after work|this week)\b/i.test(normalized)) {
+      return true;
+    }
+  }
+
+  if (
+    relationship === "tasks" &&
+    hasOptionNoun(cleaned) &&
+    !/^(?:but\s+)?(?:i|it|this|that)\b/i.test(normalized) &&
+    !/\b(?:would|could|should|might)\b/i.test(normalized) &&
+    !/\bneeds?\b.+\b(?:before i feel|before we feel|until i feel)\b/i.test(normalized)
+  ) {
+    return true;
+  }
+
+  if (
+    relationship === "tasks" &&
+    /^(?:the|a|an)\s+\w.+\b(?:needs?|requires?)\b/i.test(normalized) &&
+    !/\b(?:before i feel|feel good about it|would help me)\b/i.test(normalized)
+  ) {
+    return true;
+  }
+
+  return sourceText.trim() === cleaned && hasOptionNoun(cleaned);
+};
+
+const filterEligibleCandidates = (
+  candidateTexts: string[],
+  sourceText: string,
+  relationship: ClarityCandidateRelationship
+) => {
+  const filtered = dedupe(candidateTexts.map(cleanCandidate)).filter((candidateText) =>
+    isEligibleCandidate(candidateText, relationship, sourceText)
+  );
+
+  return filtered;
+};
 
 const isShortNounLikeOption = (value: string) =>
   !/^(send|call|email|fix|rest|book|schedule|wait|move|take|protect|keep|follow up|reply|start)\b/i.test(
@@ -548,9 +669,11 @@ const extractCandidateTexts = (rawInput: string) => {
     .split(/[\n,;]+/)
     .map(cleanCandidate)
     .filter((value) => value.length > 2);
+  const delimiterRelationship = inferCandidateRelationship(normalized, delimiterSplit);
+  const eligibleDelimiterSplit = filterEligibleCandidates(delimiterSplit, normalized, delimiterRelationship);
 
-  if (delimiterSplit.length > 1) {
-    return dedupe(delimiterSplit);
+  if (eligibleDelimiterSplit.length > 1) {
+    return eligibleDelimiterSplit;
   }
 
   if (hasExplicitCompareScaffold(normalized) || /\s+\bor\b\s+/i.test(normalized)) {
@@ -558,9 +681,10 @@ const extractCandidateTexts = (rawInput: string) => {
       .split(/\s+\bor\b\s+/i)
       .map(cleanCandidate)
       .filter((value) => value.length > 2);
+    const eligibleCompareSplit = filterEligibleCandidates(compareSplit, normalized, "alternatives");
 
-    if (compareSplit.length > 1) {
-      return dedupe(compareSplit);
+    if (eligibleCompareSplit.length > 1) {
+      return eligibleCompareSplit;
     }
   }
 
@@ -570,8 +694,15 @@ const extractCandidateTexts = (rawInput: string) => {
       .map(cleanCandidate)
       .filter((value) => value.length > 2)
   );
+  const relationship = inferCandidateRelationship(normalized, candidates);
+  const eligibleCandidates = filterEligibleCandidates(candidates, normalized, relationship);
 
-  return candidates.length ? candidates : [cleanCandidate(normalized)];
+  if (eligibleCandidates.length) {
+    return eligibleCandidates;
+  }
+
+  const cleanedWhole = cleanCandidate(normalized);
+  return isEligibleCandidate(cleanedWhole, "tasks", normalized) ? [cleanedWhole] : [cleanedWhole];
 };
 
 const getDueWindow = (text: string): { hasDeadline: boolean; dueWindow: DueWindow } => {
@@ -1350,10 +1481,10 @@ export const analyzeClarityInput = (rawInput: string, selectedDecisionGroupId?: 
     ? decisionGroups.find((group) => group.id === selectedDecisionGroupId)
     : undefined;
   const autoPrimaryDecisionGroup =
-    !selectedDecisionGroup && decisionGroups.length > 1 ? pickPrimaryDecisionGroup(decisionGroups) : undefined;
+    !selectedDecisionGroup && decisionGroups.length ? pickPrimaryDecisionGroup(decisionGroups) : undefined;
   const analysisDecisionGroup = selectedDecisionGroup ?? autoPrimaryDecisionGroup;
   const analysisInput = analysisDecisionGroup ? analysisDecisionGroup.sourceText : rawInput;
-  const contextSignals = extractContextSignals(analysisInput);
+  const contextSignals = extractContextSignals(decisionGroups.length === 1 ? normalizedInput : analysisInput);
   const extractedCandidates = analysisDecisionGroup
     ? analysisDecisionGroup.candidateTexts
     : extractCandidateTexts(analysisInput);

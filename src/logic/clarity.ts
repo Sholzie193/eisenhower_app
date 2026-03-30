@@ -86,13 +86,21 @@ const OPTION_INTRO_PREFIXES = [
 const META_LANGUAGE_PATTERNS = [
   /\bdecide between\b/i,
   /\bthey all matter for different reasons\b/i,
+  /\bthe real options are\b/i,
+  /\breal options are\b/i,
+  /\bthe options are\b/i,
   /\b(?:best|cleaner)\s+(?:first|next)\s+option\b/i,
+  /\bwhat should come second\b/i,
   /\bwhat should wait\b/i,
+  /\bwhat can wait\b/i,
   /\bwhat do i do first\b/i,
+  /\bwhat should i actually do first\b/i,
   /\bclearest next move\b/i,
   /\bwhat to do (?:now|next|instead)\b/i,
   /\bhow to handle it\b/i,
   /\bhandle first\b/i,
+  /\bactually handle first\b/i,
+  /\bactually do first\b/i,
   /\bfirst move\b/i,
   /\bcan wait\b/i,
   /^\s*(?:what|which|how)\s+/i,
@@ -203,7 +211,7 @@ const DUE_WINDOW_PRIORITY: Record<DueWindow, number> = {
 const hasAnyMatch = (value: string, expressions: RegExp[]) => expressions.some((expression) => expression.test(value));
 
 const isParagraphLikeInput = (value: string) => value.split(/\s+/).length > 18 || /[.?!]/.test(value);
-export const shouldUseAiCleanup = (value: string) => isParagraphLikeInput(value.replace(/\s+/g, " ").trim());
+export const shouldUseAiCleanup = (value: string) => Boolean(value.replace(/\s+/g, " ").trim());
 
 const dedupe = (values: string[]) => {
   const seen = new Set<string>();
@@ -797,7 +805,7 @@ const extractCandidateTexts = (rawInput: string) => {
   }
 
   const cleanedWhole = cleanCandidate(normalized);
-  return isEligibleCandidate(cleanedWhole, "tasks", normalized) ? [cleanedWhole] : [cleanedWhole];
+  return isEligibleCandidate(cleanedWhole, "tasks", normalized) ? [cleanedWhole] : [];
 };
 
 const getDueWindow = (text: string): { hasDeadline: boolean; dueWindow: DueWindow } => {
@@ -1618,10 +1626,10 @@ export const analyzeStructuredClarityInput = (
       return {
         id: group.id,
         label: group.label,
-        sourceText: [group.label, ...cleanup.tradeoffs, ...cleanup.context].join(". ").trim(),
-        candidateTexts: groupActions.map((action) =>
-          [action.title, action.details].filter(Boolean).join(". ").trim()
-        ),
+        sourceText: [group.label, ...groupActions.map((action) => action.details).filter(Boolean), ...cleanup.tradeoffs, ...cleanup.context]
+          .join(". ")
+          .trim(),
+        candidateTexts: groupActions.map((action) => action.title),
         candidateRelationship:
           groupActions.length > 1 && cleanup.decision_type !== "foggy_dump" ? ("alternatives" as const) : ("tasks" as const),
         ...(cleanup.tradeoffs[0] ? { tradeoffHint: cleanup.tradeoffs[0] } : {}),
@@ -1639,9 +1647,10 @@ export const analyzeStructuredClarityInput = (
     ? actions.filter((action) => action.decision_group === analysisDecisionGroup.id)
     : actions;
   const contextSignals = extractContextSignals([normalizedInput, ...cleanup.context, ...cleanup.tradeoffs].join(". "));
-  const builtCandidates = activeActions.map((action, index) =>
-    buildCandidate([action.title, action.details].filter(Boolean).join(". "), index, contextSignals)
-  );
+  const builtCandidates = activeActions.map((action, index) => buildCandidate(action.title, index, contextSignals));
+  if (!builtCandidates.length) {
+    return analyzeClarityInput(normalizedInput, selectedDecisionGroupId);
+  }
   const candidateRelationship = analysisDecisionGroup
     ? analysisDecisionGroup.candidateRelationship
     : getRelationshipFromAiDecisionType(cleanup.decision_type);
@@ -1676,6 +1685,16 @@ export const analyzeClarityInput = (rawInput: string, selectedDecisionGroupId?: 
   const extractedCandidates = analysisDecisionGroup
     ? analysisDecisionGroup.candidateTexts
     : extractCandidateTexts(analysisInput);
+  if (!extractedCandidates.length) {
+    const safeFallback = buildCandidate("Clarify the concrete action options", 0, contextSignals);
+
+    return finalizeAnalysis(normalizedInput, "fog", [safeFallback], undefined, undefined, {
+      candidateRelationship: "tasks",
+      decisionGroups,
+      activeDecisionGroupId: analysisDecisionGroup?.id,
+      contextSignals,
+    });
+  }
   const lowerInput = analysisInput.replace(/\s+/g, " ").trim().toLowerCase();
   const containsFogLanguage = FOG_PHRASES.some((phrase) => lowerInput.includes(phrase));
   const isParagraphLike = isParagraphLikeInput(analysisInput);

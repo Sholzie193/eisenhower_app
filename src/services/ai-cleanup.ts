@@ -4,6 +4,32 @@ import type { AiCleanupResult } from "../types/ai-cleanup";
 const OPENAI_MODEL = "gpt-5-mini";
 const SIMPLE_BINARY_LEAD =
   /^(?:do i|should i|whether to|decide whether to|deciding whether to|i(?:['’]m| am)\s+(?:still\s+)?deciding whether to|need to\s+(?:still\s+)?decide whether to)\b/i;
+const AI_META_PATTERNS = [
+  /\bwhat should (?:i\s+)?actually do first\b/i,
+  /\bwhat should come second\b/i,
+  /\bwhat can wait\b/i,
+  /\bwhat should wait\b/i,
+  /\bwhat to do (?:now|next|first)\b/i,
+  /\bhandle first\b/i,
+  /\bactually handle first\b/i,
+  /\bactually do first\b/i,
+  /\bthe real options are\b/i,
+  /\breal options are\b/i,
+  /\bthe options are\b/i,
+  /\bbest first option\b/i,
+  /\bother options\b/i,
+  /\bdecision\b:/i,
+];
+const AI_CONTEXT_ONLY_PATTERNS = [
+  /^\s*(?:but\s+)?i(?:['’]m| am)\s+(?:very\s+)?(?:hungry|tired|exhausted|drained|low energy|burned out|burnt out)\b/i,
+  /^\s*(?:but\s+)?(?:money|cash flow)\b.+\b(?:would help|helps)\b/i,
+  /^\s*i urgently need cash flow soon\b/i,
+  /^\s*(?:but\s+)?it won[’']?t directly bring in money today\b/i,
+  /^\s*(?:so\s+)?i need the clearest next move\b/i,
+];
+const AI_ACTION_VERB_PATTERNS = [
+  /\b(?:call|email|send|fix|finish|rest|book|schedule|wait|reply|follow up|cold email|cold call|cold calling|clean up|cleanup|prioriti[sz]e|focus on|keep|switch|choose|pay|invoice|ship|submit|review|reach out|outreach|delegate|automate|reduce|ignore|quit|resign|sign|buy|sell|move|start|stop|eat|prepare|ask|contact)\b/i,
+];
 
 export const AI_CLEANUP_JSON_SCHEMA = {
   type: "object",
@@ -88,6 +114,77 @@ const stripBinaryContextTail = (value: string) =>
     .replace(/[.?!]+$/g, "")
     .replace(/\s+/g, " ")
     .trim();
+
+const stripAiMetaLead = (value: string) =>
+  value
+    .replace(
+      /^(?:the real options are|real options are|the options are|actually handle first|actually do first|handle first|do first|what should (?:i\s+)?actually do first(?:,?\s*what should come second,?\s*and?\s*what can wait)?|what should come second|what can wait|what should wait|what to do (?:now|next|first)|best first option|other options|decision)\s*[:,-]?\s*/i,
+      ""
+    )
+    .replace(/^(?:and|but|so|also|then)\s+/i, "")
+    .trim();
+
+const stripAiContextTail = (value: string) =>
+  value
+    .replace(/\s*,?\s*(?:even though|although|though|despite)\s+.+$/i, "")
+    .replace(/\s+\b(?:because|since|as)\b\s+.+$/i, "")
+    .replace(/\s+\bbut\b\s+.+$/i, "")
+    .trim();
+
+const stripTrailingConjunction = (value: string) => value.replace(/\b(?:or|and|but)\s*$/i, "").trim();
+const isAiMetaLanguage = (value: string) => AI_META_PATTERNS.some((pattern) => pattern.test(value));
+const isAiContextOnly = (value: string) => AI_CONTEXT_ONLY_PATTERNS.some((pattern) => pattern.test(value));
+const hasAiActionVerb = (value: string) => AI_ACTION_VERB_PATTERNS.some((pattern) => pattern.test(value));
+
+const sanitizeAiActionTitle = (value: string) => {
+  const sanitized = stripTrailingConjunction(
+    stripAiContextTail(stripBinaryLead(stripAiMetaLead(value.replace(/[.?!]+$/g, "").replace(/\s+/g, " ").trim())))
+  );
+
+  if (!sanitized || isAiMetaLanguage(sanitized) || isAiContextOnly(sanitized)) {
+    return "";
+  }
+
+  if (!hasAiActionVerb(sanitized) && !/\b(?:clients?|email|calling|outreach|proposal|website|invoice|landlord|meeting|rest|break)\b/i.test(sanitized)) {
+    return "";
+  }
+
+  return toSentenceCase(sanitized);
+};
+
+const getLabelJoiner = (titles: string[]) =>
+  titles.length === 2 &&
+  titles.every((title) => !/^(?:send|call|email|fix|rest|book|schedule|wait|move|take|keep|follow up|reply|start|eat|prepare|ask)\b/i.test(title))
+    ? "vs"
+    : "or";
+
+const buildDecisionGroupLabelFromActions = (titles: string[]) => {
+  if (!titles.length) {
+    return "";
+  }
+
+  if (titles.length === 1) {
+    return titles[0];
+  }
+
+  if (titles.length === 2) {
+    return `${titles[0]} ${getLabelJoiner(titles)} ${titles[1]}`;
+  }
+
+  return `${titles.slice(0, 2).join(", ")}, and ${titles[2]}`;
+};
+
+const sanitizeAiDecisionGroupLabel = (value: string) => {
+  const sanitized = stripTrailingConjunction(
+    stripAiContextTail(stripBinaryLead(stripAiMetaLead(value.replace(/[.?!]+$/g, "").replace(/\s+/g, " ").trim())))
+  );
+
+  if (!sanitized || isAiMetaLanguage(sanitized) || isAiContextOnly(sanitized)) {
+    return "";
+  }
+
+  return toSentenceCase(sanitized);
+};
 
 const normalizeBinaryOptionTitle = (value: string) => {
   const normalized = stripBinaryContextTail(stripBinaryLead(value));
@@ -204,13 +301,14 @@ const normalizeAiCleanupResult = (value: unknown): AiCleanupResult | null => {
         typeof action.decision_group === "string"
     )
     .map((action) => ({
-      title: action.title.trim(),
+      title: sanitizeAiActionTitle(action.title),
       details: typeof action.details === "string" ? action.details.trim() : "",
       decision_group: action.decision_group.trim(),
     }))
     .filter((action) => action.title && action.decision_group)
     .slice(0, 8);
 
+  const actionGroups = [...new Set(actions.map((action) => action.decision_group))];
   const decisionGroups = value.decision_groups
     .filter(
       (group): group is { id: string; label: string } =>
@@ -221,15 +319,33 @@ const normalizeAiCleanupResult = (value: unknown): AiCleanupResult | null => {
     )
     .map((group) => ({
       id: group.id.trim(),
-      label: group.label.trim(),
+      label: sanitizeAiDecisionGroupLabel(group.label),
     }))
-    .filter((group) => group.id && group.label)
+    .filter((group) => group.id && actionGroups.includes(group.id))
     .slice(0, 6);
 
   const context = trimStringArray(value.context, 8);
   const tradeoffs = trimStringArray(value.tradeoffs, 8);
 
-  if (!actions.length || !decisionGroups.length || !context || !tradeoffs) {
+  if (!actions.length || !context || !tradeoffs) {
+    return null;
+  }
+
+  const repairedDecisionGroups = actionGroups
+    .map((groupId) => {
+      const existingGroup = decisionGroups.find((group) => group.id === groupId);
+      const actionTitles = actions
+        .filter((action) => action.decision_group === groupId)
+        .map((action) => action.title);
+      const fallbackLabel = buildDecisionGroupLabelFromActions(actionTitles);
+      const nextLabel = existingGroup?.label || fallbackLabel;
+
+      return nextLabel ? { id: groupId, label: nextLabel } : null;
+    })
+    .filter((group): group is { id: string; label: string } => Boolean(group))
+    .slice(0, 6);
+
+  if (!repairedDecisionGroups.length) {
     return null;
   }
 
@@ -238,7 +354,7 @@ const normalizeAiCleanupResult = (value: unknown): AiCleanupResult | null => {
     actions,
     context,
     tradeoffs,
-    decision_groups: decisionGroups,
+    decision_groups: repairedDecisionGroups,
   };
 };
 

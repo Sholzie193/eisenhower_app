@@ -6,7 +6,6 @@ import {
   analyzeStructuredClarityInput,
   answerClarityQuestion as answerClarityQuestionLogic,
   focusClarityDecisionGroup as focusClarityDecisionGroupLogic,
-  shouldUseAiCleanup,
 } from "../logic/clarity";
 import { cleanupClarityInputWithAi } from "../services/ai-cleanup";
 import { evaluateTriage, getQuadrantGuidance } from "../logic/triage";
@@ -187,8 +186,7 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
   const runClarity = async (rawInput: string) => {
     setDraft(null);
     const normalizedInput = rawInput.trim();
-    const aiCleanup =
-      shouldUseAiCleanup(normalizedInput) ? await cleanupClarityInputWithAi(normalizedInput) : null;
+    const aiCleanup = await cleanupClarityInputWithAi(normalizedInput);
     const nextSession = aiCleanup
       ? analyzeStructuredClarityInput(normalizedInput, aiCleanup)
       : analyzeClarityInput(normalizedInput);

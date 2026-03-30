@@ -19,6 +19,7 @@ import type {
 type ContextSignalKind =
   | "lowEnergy"
   | "deadlinePressure"
+  | "lowTimePressure"
   | "moneySpeed"
   | "higherValue"
   | "socialPressure";
@@ -137,6 +138,11 @@ const CONTEXT_PATTERNS: Array<{ kind: ContextSignalKind; label: string; expressi
     label: "There is real time pressure around this.",
     expression:
       /\b(?:deadline|due|today|tonight|tomorrow|urgent|asap|immediately|eod|end of day|this week|before\s+\d|by\s+\d)\b/i,
+  },
+  {
+    kind: "lowTimePressure",
+    label: "There is no hard deadline here.",
+    expression: /\b(?:no hard deadline|not urgent|nothing is due yet|no real deadline)\b/i,
   },
   {
     kind: "moneySpeed",
@@ -438,6 +444,16 @@ const getContextAlignmentScore = (text: string, contextSignals: ContextSignal[])
       }
     }
 
+    if (signal.kind === "lowTimePressure") {
+      if (/\b(after|later|tomorrow|this week|wait|schedule|rest)\b/i.test(text)) {
+        score += 0.35;
+      }
+
+      if (/\b(now|today|right away|immediately)\b/i.test(text)) {
+        score -= 0.3;
+      }
+    }
+
     if (
       signal.kind === "moneySpeed" &&
       /\b(faster|sooner|cash|receive money faster|receive money from (?:them|this) faster|get paid faster|pay faster)\b/i.test(text)
@@ -565,6 +581,14 @@ const filterEligibleCandidates = (
 const trimLeadingConnector = (value: string) =>
   value.replace(/^(?:and|but|so|also|then)\s+/i, "").trim();
 
+const splitActionListClause = (clause: string) =>
+  clause
+    .split(
+      /,\s+(?=(?:i\s+could\s+|i\s+can\s+|i\s+should\s+|i\s+might\s+|send|follow up|call|fix|reply|book|pay|prepare|ask|rest|review|submit|ship|reach out|contact|email|write|move|schedule|prioriti[sz]e|focus on))|\s+\bor\b\s+(?=(?:send|follow up|call|fix|reply|book|pay|prepare|ask|rest|review|submit|ship|reach out|contact|email|write|move|schedule|prioriti[sz]e|focus on))/i
+    )
+    .map((part) => trimLeadingConnector(part.trim()))
+    .filter(Boolean);
+
 const splitActionClauses = (rawInput: string) =>
   rawInput
     .replace(/[•·]/g, "\n")
@@ -590,6 +614,7 @@ const normalizeActionClause = (value: string) => {
 const extractActionClauses = (rawInput: string) => {
   const clauses = splitActionClauses(rawInput);
   const actionClauses = clauses
+    .flatMap(splitActionListClause)
     .map(normalizeActionClause)
     .filter((clause) => clause.length > 2)
     .filter((clause) => !isMetaLanguage(clause) && !isContextOnlyFragment(clause))

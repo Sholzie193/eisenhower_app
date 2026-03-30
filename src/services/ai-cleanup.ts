@@ -436,100 +436,6 @@ const normalizeBinaryOptionTitle = (value: string) => {
   return normalized ? toSentenceCase(normalized) : "";
 };
 
-const extractSimpleBinaryCleanup = (rawInput: string): AiCleanupResult | null => {
-  const normalized = rawInput.replace(/\s+/g, " ").trim();
-  const normalizedWithoutTail = normalized.replace(/[.?!]+$/g, "").trim();
-
-  if (!SIMPLE_BINARY_LEAD.test(normalizedWithoutTail)) {
-    return null;
-  }
-
-  if (/\b(?:also|plus)\b/i.test(normalizedWithoutTail)) {
-    return null;
-  }
-
-  if ((normalizedWithoutTail.match(/\bor\b/gi) ?? []).length !== 1) {
-    return null;
-  }
-
-  const parts = normalizedWithoutTail.split(/\s*,?\s+or\s+/i);
-  if (parts.length !== 2) {
-    return null;
-  }
-
-  const left = normalizeBinaryOptionTitle(parts[0]);
-  const right = normalizeBinaryOptionTitle(parts[1]);
-
-  if (!left || !right) {
-    return null;
-  }
-
-  const context: string[] = [];
-  const tradeoffs: string[] = [];
-
-  if (/\b(?:hungry|very hungry|tired|exhausted|drained|low energy)\b/i.test(normalizedWithoutTail)) {
-    context.push("Very hungry or low energy");
-  }
-
-  if (/\bduring (?:my\s+)?lunch(?: break)?\b/i.test(normalizedWithoutTail) && /\bafter lunch\b/i.test(normalizedWithoutTail)) {
-    tradeoffs.push("Sooner vs better energy");
-  }
-
-  const joiner = /\b(?:clients?|email|cold email|cold calling|calling|outreach)\b/i.test(`${left} ${right}`) ? "vs" : "or";
-  const label = `${left} ${joiner} ${right}`;
-
-  return {
-    decision_type: "option_choice",
-    summary: {
-      situation: "A contained either-or choice came through clearly.",
-      primary_recommendation: "Compare the two clean options directly.",
-      primary_reason: "The main tradeoff is clear enough to keep this light.",
-    },
-    items: [
-      {
-        id: "item-1",
-        title: left,
-        details: "",
-        type: "option",
-        decision_group: "group-1",
-        quadrant: /\bnow|today|during lunch\b/i.test(left) ? "do_now" : "schedule",
-        urgency: /\bnow|today|during lunch\b/i.test(left) ? 4 : 2,
-        importance: 3,
-        cost_of_delay: /\bnow|today|during lunch\b/i.test(left) ? 3 : 2,
-        reversibility: 4,
-        friction: /\blunch|hungry|after lunch\b/i.test(left) ? 3 : 2,
-        energy_fit: /\bafter lunch|later|rest|eat first\b/i.test(left) ? 5 : 2,
-        upside: 3,
-        why: "This is one real option inside the choice.",
-      },
-      {
-        id: "item-2",
-        title: right,
-        details: "",
-        type: "option",
-        decision_group: "group-1",
-        quadrant: /\bafter lunch|later|wait\b/i.test(right) ? "schedule" : "do_now",
-        urgency: /\bafter lunch|later|wait\b/i.test(right) ? 2 : 4,
-        importance: 3,
-        cost_of_delay: /\bafter lunch|later|wait\b/i.test(right) ? 2 : 3,
-        reversibility: 4,
-        friction: /\bafter lunch|later|wait\b/i.test(right) ? 2 : 3,
-        energy_fit: /\bafter lunch|later|wait|eat first\b/i.test(right) ? 5 : 2,
-        upside: 3,
-        why: "This is the alternate option inside the same choice.",
-      },
-    ],
-    context,
-    tradeoffs,
-    decision_groups: [{ id: "group-1", label }],
-    presentation: {
-      show_now: ["item-1"],
-      show_next: ["item-2"],
-      show_later: [],
-    },
-  };
-};
-
 const trimStringArray = (values: unknown, maxItems: number) => {
   if (!Array.isArray(values)) {
     return null;
@@ -748,10 +654,9 @@ export const canUseAiCleanup = () => Boolean(getOpenAiApiKey());
 
 export const cleanupClarityInputWithAi = async (rawInput: string): Promise<AiCleanupResult | null> => {
   const apiKey = getOpenAiApiKey();
-  const binaryCleanup = extractSimpleBinaryCleanup(rawInput);
 
   if (!apiKey || !rawInput.trim()) {
-    return binaryCleanup;
+    return null;
   }
 
   try {
@@ -797,8 +702,8 @@ export const cleanupClarityInputWithAi = async (rawInput: string): Promise<AiCle
       return null;
     }
 
-    return binaryCleanup ?? normalizeAiCleanupResult(JSON.parse(content), rawInput);
+    return normalizeAiCleanupResult(JSON.parse(content), rawInput);
   } catch {
-    return binaryCleanup;
+    return null;
   }
 };

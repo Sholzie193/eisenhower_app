@@ -15,7 +15,263 @@ import type { ClarityAnalysis, ClarityCandidate } from "../src/types/decision";
 const getClarityLabel = (analysis: ClarityAnalysis, candidate: ClarityCandidate) => {
   void analysis;
   void candidate;
-  return "Best next move";
+  return "Clearest next move";
+};
+
+const toSentence = (value: string) => {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return "";
+  }
+
+  return /[.?!]$/.test(trimmed) ? trimmed : `${trimmed}.`;
+};
+
+const stripTrailingPeriod = (value: string) => value.replace(/[.]+$/g, "").trim();
+
+const dedupeBullets = (values: string[]) => {
+  const seen = new Set<string>();
+  return values.filter((value) => {
+    const key = value.trim().toLowerCase();
+    if (!key || seen.has(key)) {
+      return false;
+    }
+
+    seen.add(key);
+    return true;
+  });
+};
+
+const joinTitles = (titles: string[]) => {
+  if (!titles.length) {
+    return "";
+  }
+
+  if (titles.length === 1) {
+    return titles[0];
+  }
+
+  if (titles.length === 2) {
+    return `${titles[0]} and ${titles[1]}`;
+  }
+
+  return `${titles.slice(0, -1).join(", ")}, and ${titles.at(-1)}`;
+};
+
+const getConsideredBoard = (analysis: ClarityAnalysis) => {
+  const rawTitles =
+    analysis.structuredCleanup?.items.map((item) => item.title.trim()).filter(Boolean) ??
+    analysis.candidates.map((candidate) => candidate.title);
+  const titles = dedupeBullets(rawTitles).slice(0, 5);
+  const hiddenCount = Math.max(0, rawTitles.length - titles.length);
+  const context = dedupeBullets(
+    [...(analysis.structuredCleanup?.context ?? []), ...analysis.contextHints]
+      .map(stripTrailingPeriod)
+      .filter(
+        (entry) =>
+          entry &&
+          !/^still meaningful right now:/i.test(entry) &&
+          !/still matters, but it does not need to lead/i.test(entry)
+      )
+  ).slice(0, 2);
+
+  return { titles, context, hiddenCount };
+};
+
+const getStillInPlayItems = (analysis: ClarityAnalysis) => {
+  const firstMoveId = analysis.firstMove?.id;
+  const primaryIds = new Set<string>([
+    ...(firstMoveId ? [firstMoveId] : []),
+    ...analysis.laterItems
+      .filter((candidate) => candidate.triageResult.quadrant === "delegate" || candidate.triageResult.quadrant === "eliminate")
+      .map((candidate) => candidate.id),
+  ]);
+
+  const items = [
+    ...analysis.activeItems,
+    ...analysis.laterItems.filter(
+      (candidate) =>
+        !primaryIds.has(candidate.id) &&
+        (candidate.triageResult.quadrant === "doNow" || candidate.triageResult.quadrant === "schedule")
+    ),
+  ];
+
+  return items.filter((candidate, index, list) => list.findIndex((entry) => entry.id === candidate.id) === index);
+};
+
+const getCanWaitItems = (analysis: ClarityAnalysis) => {
+  const later = analysis.laterItems.filter(
+    (candidate) => candidate.triageResult.quadrant === "delegate" || candidate.triageResult.quadrant === "eliminate"
+  );
+
+  if (later.length) {
+    return later;
+  }
+
+  return analysis.laterItems;
+};
+
+const titleHas = (candidate: ClarityCandidate | null | undefined, expression: RegExp) =>
+  Boolean(candidate && expression.test(candidate.title.toLowerCase()));
+
+const getConcretePressureBullets = (analysis: ClarityAnalysis) => {
+  const bullets: string[] = [];
+  const rawContext = [...(analysis.structuredCleanup?.context ?? []), ...analysis.contextHints];
+  const allCandidates = analysis.candidates;
+  const hasLowEnergy = rawContext.some((entry) =>
+    /\blow energy|energy is low|hungry|tired|exhausted|drained|burned out|burnt out\b/i.test(entry)
+  );
+  const hasTimePressure = rawContext.some((entry) =>
+    /\btime pressure|deadline|urgent|today|tomorrow|this week\b/i.test(entry)
+  );
+  const hasNoHardDeadline = rawContext.some((entry) =>
+    /\bno hard deadline|no real deadline\b/i.test(entry)
+  );
+
+  if (hasLowEnergy) {
+    bullets.push("Energy is low right now");
+  }
+
+  if (allCandidates.some((candidate) => /\blandlord|rent\b/i.test(candidate.title))) {
+    bullets.push("Rent timing is creating pressure");
+  }
+
+  if (allCandidates.some((candidate) => /\bwebsite\b/i.test(candidate.title))) {
+    bullets.push("Website still matters for credibility");
+  }
+
+  if (allCandidates.some((candidate) => /\bproposal\b/i.test(candidate.title))) {
+    bullets.push("The proposal still carries meaningful upside");
+  }
+
+  if (allCandidates.some((candidate) => /\bdubai\b/i.test(candidate.title))) {
+    bullets.push("Following up the Dubai lead could move cash sooner");
+  }
+
+  if (hasTimePressure && hasNoHardDeadline) {
+    bullets.push("This matters soon, but it is not an immediate emergency");
+  } else if (hasTimePressure) {
+    bullets.push("One part of this is carrying real time pressure");
+  } else if (hasNoHardDeadline) {
+    bullets.push("Nothing here needs emergency handling");
+  }
+
+  return bullets;
+};
+
+const getSpecificTradeoffBullets = (analysis: ClarityAnalysis) =>
+  (analysis.structuredCleanup?.tradeoffs ?? [])
+    .map(stripTrailingPeriod)
+    .filter(Boolean)
+    .map((tradeoff) => {
+      if (/higher pay vs faster payment/i.test(tradeoff)) {
+        return "This includes a higher-pay versus faster-payment tradeoff";
+      }
+
+      if (/sending sooner vs protecting your energy/i.test(tradeoff)) {
+        return "The tradeoff is speed versus protecting your energy";
+      }
+
+      if (/act sooner vs wait a bit/i.test(tradeoff)) {
+        return "The choice is between moving sooner and keeping pressure lower";
+      }
+
+      if (/focused niche vs broader reach/i.test(tradeoff)) {
+        return "This is partly a focus-versus-breadth decision";
+      }
+
+      return tradeoff;
+    });
+
+const getWhatImSeeingBullets = (analysis: ClarityAnalysis) => {
+  const bullets = dedupeBullets([
+    ...getConcretePressureBullets(analysis),
+    ...getSpecificTradeoffBullets(analysis),
+    ...(analysis.structuredCleanup?.context ?? [])
+      .map(stripTrailingPeriod)
+      .filter(
+        (entry) =>
+          entry &&
+          !/\bthere is real time pressure around this\b/i.test(entry) &&
+          !/\bthere is no hard deadline here\b/i.test(entry) &&
+          !/\bthere may be relationship or work consequences here\b/i.test(entry) &&
+          !/\benergy feels low right now\b/i.test(entry) &&
+          !/\bcash timing seems to matter here\b/i.test(entry) &&
+          !/\bone path appears to have higher upside\b/i.test(entry)
+      ),
+    analysis.activeItems.length
+      ? `Still meaningful right now: ${joinTitles(analysis.activeItems.slice(0, 2).map((item) => item.title))}`
+      : "",
+    analysis.laterItems.length
+      ? `${analysis.laterItems[0].title} still matters, but it does not need to lead`
+      : "",
+  ]);
+
+  return bullets.slice(0, 5).map(toSentence);
+};
+
+const getWhyThisFirstCopy = (analysis: ClarityAnalysis) => {
+  const firstMove = analysis.firstMove;
+  if (!firstMove) {
+    return "The app did not get a stable enough Clarity read to compare options yet.";
+  }
+
+  const runnerUps = [
+    ...analysis.activeItems.slice(0, 2),
+    ...analysis.laterItems.slice(0, 1),
+  ].filter((candidate, index, list) => list.findIndex((entry) => entry.id === candidate.id) === index);
+
+  if (!runnerUps.length) {
+    return stripTrailingPeriod(firstMove.calmingWhy);
+  }
+
+  const lines: string[] = [];
+  const topRunner = runnerUps[0];
+
+  if (titleHas(firstMove, /\blandlord|rent\b/) && titleHas(topRunner, /\bwebsite\b/)) {
+    lines.push("The landlord issue gets harder if you leave it untouched");
+    lines.push("Website work still matters, but it has less immediate pressure");
+  } else if (titleHas(firstMove, /\bproposal|client\b/) && titleHas(topRunner, /\bwebsite\b/)) {
+    lines.push("Client-facing work has more immediate upside than website work right now");
+    lines.push("The website still matters, but it does not need to lead");
+  } else if (titleHas(firstMove, /\bdubai\b/) && titleHas(topRunner, /\bproposal\b/)) {
+    lines.push("The Dubai lead could move cash sooner");
+    lines.push("The proposal may be bigger upside, but it can follow after the first move");
+  } else if (titleHas(firstMove, /\brest\b/) || titleHas(topRunner, /\brest\b/)) {
+    lines.push("Low energy makes the lighter move more realistic than heavier work");
+  } else {
+    lines.push(`${firstMove.title} has the strongest mix of pressure and payoff right now`);
+  }
+
+  runnerUps.forEach((candidate) => {
+    if (candidate.id === topRunner.id) {
+      return;
+    }
+
+    if (candidate.triageResult.quadrant === "schedule") {
+      lines.push(`${candidate.title} still matters, but it can follow after the first move`);
+    } else if (candidate.triageResult.quadrant === "delegate") {
+      lines.push(`${candidate.title} is still real, but it does not deserve the first block of effort`);
+    } else if (candidate.triageResult.quadrant === "eliminate") {
+      lines.push(`${candidate.title} carries less pressure, so it can stay in the background for now`);
+    }
+  });
+
+  return `${lines.map(stripTrailingPeriod).join(". ")}.`;
+};
+
+const getStillInPlayCopy = (candidate: ClarityCandidate) => {
+  switch (candidate.triageResult.quadrant) {
+    case "doNow":
+      return "Still meaningful, just not the clearest place to start.";
+    case "schedule":
+      return "Still matters, but it can follow after the first move settles.";
+    case "delegate":
+      return "Still real, but it does not deserve the first block of effort.";
+    case "eliminate":
+    default:
+      return "Still part of the picture, just lower-pressure than the move above.";
+  }
 };
 
 const getActionHeading = (analysis: ClarityAnalysis, candidate: ClarityCandidate) => {
@@ -64,35 +320,45 @@ const getDisplayedRecommendation = (analysis: ClarityAnalysis, candidate: Clarit
   }
 };
 
-const getDisplayedNextStep = (analysis: ClarityAnalysis, candidate: ClarityCandidate) => {
-  if (analysis.decisionShape !== "option_choice") {
-    return candidate.triageResult.nextStep;
-  }
-
-  switch (candidate.triageResult.quadrant) {
-    case "doNow":
-      return candidate.triageResult.nextStep;
-    case "schedule":
-      return "Choose this direction now, then block a calm time for the actual move.";
-    case "delegate":
-      return "Keep the effort light and avoid turning this into a heavier commitment than it needs to be.";
-    case "eliminate":
-    default:
-      return "Treat this as the simpler default for now, and revisit only if the tradeoff changes.";
-  }
-};
-
 const getWaitCopy = (candidate: ClarityCandidate) => {
   switch (candidate.triageResult.quadrant) {
     case "schedule":
-      return "Important, but it can wait for a calmer time block.";
+      return "This still matters, but it can sit behind a calmer time block.";
     case "delegate":
-      return "Feels noisy, but it does not need your full attention first.";
+      return "This can stay lighter for now without much cost.";
     case "eliminate":
-      return "Probably not worth much energy right now.";
+      return "Low pressure right now, so it does not need foreground attention.";
     case "doNow":
     default:
-      return "Valid, just not the strongest first move from this set.";
+      return "Valid, but it carries less pressure than the move above.";
+  }
+};
+
+const getNextStepCopy = (analysis: ClarityAnalysis, candidate: ClarityCandidate) => {
+  if (analysis.decisionShape === "option_choice") {
+    switch (candidate.triageResult.quadrant) {
+      case "doNow":
+        return "Make the first concrete move now so the cleaner option actually starts moving.";
+      case "schedule":
+        return "Pick a time today or tomorrow to handle this deliberately, and keep it off the urgent pile.";
+      case "delegate":
+        return "Choose the lightest workable version and keep it from growing into heavier effort.";
+      case "eliminate":
+      default:
+        return "Let this stay light for now and only bring it forward if the tradeoff changes.";
+    }
+  }
+
+  switch (candidate.triageResult.quadrant) {
+    case "doNow":
+      return "Start the smallest concrete step now so it stops sitting in your head.";
+    case "schedule":
+      return "Give it a clear slot before the friction grows, but do not treat it like an emergency.";
+    case "delegate":
+      return "Keep it moving with the lightest useful action instead of taking it on fully.";
+    case "eliminate":
+    default:
+      return "Move it out of the foreground so it stops taking attention it has not earned.";
   }
 };
 
@@ -100,14 +366,14 @@ const getAdaptiveWaitCopy = (analysis: ClarityAnalysis, candidate: ClarityCandid
   if (analysis.activeDecisionGroupId) {
     return analysis.decisionShape === "option_choice"
       ? "A valid option, just not the cleaner first move here."
-      : "A real option, just not the clearest first move inside this decision.";
+      : getStillInPlayCopy(candidate);
   }
 
   if (analysis.decisionShape === "option_choice") {
     return "Still valid, just not the strongest option to act on first.";
   }
 
-  return getWaitCopy(candidate);
+  return getStillInPlayCopy(candidate);
 };
 
 const getModeHeading = (analysis: ClarityAnalysis) => {
@@ -134,6 +400,59 @@ function ClarityResultScreen() {
     return <Redirect href="/" />;
   }
 
+  if (claritySession.status === "failed" || !claritySession.firstMove) {
+    return (
+      <ScreenShell>
+        <View style={styles.header}>
+          <HeaderButton
+            label="Back"
+            icon="chevron-back"
+            onPress={() => {
+              clearClarity();
+              goBackOrFallback("/");
+            }}
+          />
+          <Text style={[styles.step, { color: theme.colors.textSoft }]}>Clarity read</Text>
+        </View>
+
+        <View style={styles.titleBlock}>
+          <Text style={[styles.title, { color: theme.colors.text }]}>
+            {claritySession.failureTitle ?? "I couldn't get a reliable read of this yet."}
+          </Text>
+          <Text style={[styles.subtitle, { color: theme.colors.textMuted }]}>
+            {claritySession.failureMessage ??
+              "Try again, or switch to the manual breakdown if you want a deterministic read."}
+          </Text>
+        </View>
+
+        <NeuCard style={styles.heroCard}>
+          <Text style={[styles.label, { color: theme.colors.textSoft }]}>Clarity needs a reliable AI read</Text>
+          <Text style={[styles.primaryWhy, { color: theme.colors.textMuted }]}>
+            The app did not get a structured result it trusts, so it is not showing a guessed recommendation.
+          </Text>
+        </NeuCard>
+
+        <NeuButton
+          label="Try Clarity again"
+          onPress={() => {
+            router.replace("/");
+          }}
+        />
+        <NeuButton
+          label="Refine manually"
+          variant="secondary"
+          onPress={() => {
+            startDraft({
+              title: "",
+              notes: claritySession.rawInput.trim(),
+            });
+            router.replace("/add");
+          }}
+        />
+      </ScreenShell>
+    );
+  }
+
   const { firstMove, question } = claritySession;
   const currentDecisionGroup =
     claritySession.decisionGroups.find((group) => group.id === claritySession.activeDecisionGroupId) ??
@@ -141,8 +460,11 @@ function ClarityResultScreen() {
   const remainingDecisionGroups = claritySession.decisionGroups.filter(
     (group) => group.id !== claritySession.activeDecisionGroupId
   );
-  const activeItems = claritySession.activeItems.slice(0, 3);
-  const laterItems = claritySession.laterItems.slice(0, 3);
+  const consideredBoard = getConsideredBoard(claritySession);
+  const activeItems = getStillInPlayItems(claritySession).slice(0, 3);
+  const laterItems = getCanWaitItems(claritySession).slice(0, 3);
+  const seeingBullets = getWhatImSeeingBullets(claritySession);
+  const whyThisFirst = getWhyThisFirstCopy(claritySession);
   const questionCandidates = question
     ? claritySession.candidates.filter((candidate) => question.candidateIds.includes(candidate.id))
     : [];
@@ -228,6 +550,53 @@ function ClarityResultScreen() {
             </NeuCard>
           ) : null}
 
+          {seeingBullets.length ? (
+            <NeuCard variant="flat" style={styles.sectionCard}>
+              <Text style={[styles.label, { color: theme.colors.textSoft }]}>What I'm seeing</Text>
+              <View style={styles.bulletList}>
+                {seeingBullets.map((bullet) => (
+                  <View key={bullet} style={styles.bulletRow}>
+                    <Text style={[styles.bulletMarker, { color: theme.colors.textSoft }]}>-</Text>
+                    <Text style={[styles.bulletText, { color: theme.colors.textMuted }]}>{bullet}</Text>
+                  </View>
+                ))}
+              </View>
+            </NeuCard>
+          ) : null}
+
+          {consideredBoard.titles.length ? (
+            <NeuCard variant="flat" style={styles.sectionCard}>
+              <Text style={[styles.label, { color: theme.colors.textSoft }]}>What I considered</Text>
+              <View style={styles.boardList}>
+                {consideredBoard.titles.map((title) => (
+                  <View
+                    key={title}
+                    style={[
+                      styles.boardChip,
+                      {
+                        backgroundColor: theme.colors.surfaceInset,
+                        borderColor: theme.colors.stroke,
+                      },
+                    ]}
+                  >
+                    <Text style={[styles.boardChipText, { color: theme.colors.text }]}>{title}</Text>
+                  </View>
+                ))}
+              </View>
+              {consideredBoard.context.length ? (
+                <Text style={[styles.boardMeta, { color: theme.colors.textSoft }]}>
+                  Also shaping this: {consideredBoard.context.join(" / ")}
+                </Text>
+              ) : null}
+              {consideredBoard.hiddenCount ? (
+                <Text style={[styles.boardMeta, { color: theme.colors.textSoft }]}>
+                  {consideredBoard.hiddenCount} more item
+                  {consideredBoard.hiddenCount === 1 ? "" : "s"} stayed in the full board behind this narrowed view.
+                </Text>
+              ) : null}
+            </NeuCard>
+          ) : null}
+
           <NeuCard style={styles.heroCard}>
             <View style={styles.heroTop}>
               <QuadrantPill quadrant={firstMove.triageResult.quadrant} />
@@ -268,11 +637,6 @@ function ClarityResultScreen() {
                 ))}
               </View>
             ) : null}
-            {claritySession.contextHints.length ? (
-              <Text style={[styles.waitFootnote, { color: theme.colors.textSoft }]}>
-                {claritySession.contextHints[0]}
-              </Text>
-            ) : null}
           </NeuCard>
 
           <NeuCard variant="flat" style={styles.nextCard}>
@@ -283,26 +647,32 @@ function ClarityResultScreen() {
               {claritySession.aiSummary?.primary_recommendation ?? getDisplayedRecommendation(claritySession, firstMove)}
             </Text>
             <Text style={[styles.nextStep, { color: theme.colors.textMuted }]}>
-              {getDisplayedNextStep(claritySession, firstMove)}
+              {getNextStepCopy(claritySession, firstMove)}
             </Text>
           </NeuCard>
 
+          <NeuCard variant="flat" style={styles.sectionCard}>
+            <Text style={[styles.label, { color: theme.colors.textSoft }]}>Why this first</Text>
+            <Text style={[styles.whyTitle, { color: theme.colors.text }]}>{firstMove.title}</Text>
+            <Text style={[styles.waitText, { color: theme.colors.textMuted }]}>{whyThisFirst}</Text>
+          </NeuCard>
+
           <NeuCard variant="flat" style={styles.waitCard}>
-            <Text style={[styles.label, { color: theme.colors.textSoft }]}>What else is active</Text>
+            <Text style={[styles.label, { color: theme.colors.textSoft }]}>Still in play</Text>
             {activeItems.length ? (
               <View style={styles.waitList}>
                 {activeItems.map((candidate) => (
                   <View key={candidate.id} style={styles.waitRow}>
                     <Text style={[styles.waitTitle, { color: theme.colors.text }]}>{candidate.title}</Text>
                     <Text style={[styles.waitText, { color: theme.colors.textMuted }]}>
-                      {candidate.calmingWhy}
+                      {getStillInPlayCopy(candidate)}
                     </Text>
                   </View>
                 ))}
               </View>
             ) : (
               <Text style={[styles.waitText, { color: theme.colors.textMuted }]}>
-                Nothing else looks as immediate as the move above.
+                Nothing else looks like it needs the same level of attention right away.
               </Text>
             )}
           </NeuCard>
@@ -322,8 +692,8 @@ function ClarityResultScreen() {
                 {claritySession.candidates.length > 1 + activeItems.length + laterItems.length ? (
                   <Text style={[styles.waitFootnote, { color: theme.colors.textSoft }]}>
                     {claritySession.candidates.length - (1 + activeItems.length + laterItems.length)} more item
-                    {claritySession.candidates.length - (1 + activeItems.length + laterItems.length) === 1 ? "" : "s"} stayed
-                    in the background for now.
+                    {claritySession.candidates.length - (1 + activeItems.length + laterItems.length) === 1 ? "" : "s"} were
+                    considered, but they carry less pressure than the items above.
                   </Text>
                 ) : null}
               </View>
@@ -573,6 +943,30 @@ const styles = StyleSheet.create({
   nextCard: {
     gap: 8,
   },
+  sectionCard: {
+    gap: 10,
+  },
+  boardList: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  boardChip: {
+    borderRadius: 18,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  boardChipText: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontFamily: "IBMPlexSans_600SemiBold",
+  },
+  boardMeta: {
+    fontSize: 12,
+    lineHeight: 18,
+    fontFamily: "IBMPlexSans_500Medium",
+  },
   nextMove: {
     fontSize: 20,
     lineHeight: 26,
@@ -606,6 +1000,30 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 17,
     fontFamily: "IBMPlexSans_500Medium",
+  },
+  bulletList: {
+    gap: 10,
+  },
+  bulletRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+  },
+  bulletMarker: {
+    fontSize: 14,
+    lineHeight: 20,
+    fontFamily: "IBMPlexSans_600SemiBold",
+  },
+  bulletText: {
+    flex: 1,
+    fontSize: 14,
+    lineHeight: 20,
+    fontFamily: "IBMPlexSans_500Medium",
+  },
+  whyTitle: {
+    fontSize: 18,
+    lineHeight: 24,
+    fontFamily: "IBMPlexSans_600SemiBold",
   },
   questionCard: {
     gap: 12,

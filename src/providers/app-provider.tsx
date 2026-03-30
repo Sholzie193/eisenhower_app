@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useRef, useState, type PropsWithC
 import { sampleItems } from "../constants/sampleData";
 import { QUADRANT_META } from "../constants/quadrants";
 import {
-  analyzeClarityInput,
+  createClarityFailureAnalysis,
   analyzeStructuredClarityInput,
   answerClarityQuestion as answerClarityQuestionLogic,
   focusClarityDecisionGroup as focusClarityDecisionGroupLogic,
@@ -189,7 +189,11 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
     const aiCleanup = await cleanupClarityInputWithAi(normalizedInput);
     const nextSession = aiCleanup
       ? analyzeStructuredClarityInput(normalizedInput, aiCleanup)
-      : analyzeClarityInput(normalizedInput);
+      : createClarityFailureAnalysis(
+          normalizedInput,
+          "I couldn't get a reliable read of this yet.",
+          "Try again in a moment, or switch to the manual breakdown if you want a deterministic read."
+        );
     setClaritySession(nextSession);
     return nextSession;
   };

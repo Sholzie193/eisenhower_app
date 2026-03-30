@@ -102,8 +102,9 @@ export interface ClarityDecisionGroup {
 }
 
 export interface ClarityAnalysis {
+  status: "ready" | "failed";
   rawInput: string;
-  source: "ai" | "fallback";
+  source: "ai";
   mode: ClarityMode;
   decisionShape: DecisionShape;
   decisionGate: DecisionGate;
@@ -112,7 +113,7 @@ export interface ClarityAnalysis {
   contextHints: string[];
   summary: string;
   aiSummary?: AiCleanupSummary;
-  firstMove: ClarityCandidate;
+  firstMove: ClarityCandidate | null;
   candidates: ClarityCandidate[];
   activeItems: ClarityCandidate[];
   laterItems: ClarityCandidate[];
@@ -123,4 +124,6 @@ export interface ClarityAnalysis {
   activeDecisionGroupId?: string;
   narrowedFromCount?: number;
   structuredCleanup?: AiCleanupResult;
+  failureTitle?: string;
+  failureMessage?: string;
 }

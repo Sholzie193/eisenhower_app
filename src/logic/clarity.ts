@@ -1829,6 +1829,32 @@ const orderCandidatesForPresentation = (
   });
 };
 
+export const createClarityFailureAnalysis = (
+  rawInput: string,
+  failureTitle = "I couldn't get a reliable read of this yet.",
+  failureMessage = "Try again, or switch to the manual breakdown if you want a deterministic read."
+): ClarityAnalysis => ({
+  status: "failed",
+  rawInput,
+  source: "ai",
+  mode: "fog",
+  decisionShape: "foggy_dump",
+  decisionGate: "careful",
+  contextKinds: [],
+  contextHints: [],
+  summary: failureTitle,
+  firstMove: null,
+  candidates: [],
+  activeItems: [],
+  laterItems: [],
+  waiting: [],
+  question: null,
+  candidateRelationship: "tasks",
+  decisionGroups: [],
+  failureTitle,
+  failureMessage,
+});
+
 const finalizeAnalysis = (
   rawInput: string,
   mode: ClarityMode,
@@ -1836,7 +1862,7 @@ const finalizeAnalysis = (
   narrowedFromCount?: number,
   selectedId?: string,
   options?: {
-    source?: "ai" | "fallback";
+    source?: "ai";
     structuredCleanup?: AiCleanupResult;
     candidateRelationship?: ClarityCandidateRelationship;
     decisionGroups?: ClarityDecisionGroup[];
@@ -1847,6 +1873,10 @@ const finalizeAnalysis = (
     presentation?: AiCleanupResult["presentation"];
   }
 ): ClarityAnalysis => {
+  if (!candidates.length) {
+    return createClarityFailureAnalysis(rawInput);
+  }
+
   const sortedCandidates = sortCandidates(candidates);
   const candidateRelationship = options?.candidateRelationship ?? "tasks";
   const decisionGroups = options?.decisionGroups ?? [];
@@ -1903,8 +1933,9 @@ const finalizeAnalysis = (
   );
 
   return {
+    status: "ready",
     rawInput,
-    source: options?.source ?? "fallback",
+    source: "ai",
     mode,
     decisionShape,
     decisionGate,
@@ -1967,7 +1998,6 @@ export const analyzeStructuredClarityInput = (
   selectedDecisionGroupId?: string
 ): ClarityAnalysis => {
   const normalizedInput = rawInput.replace(/\s+/g, " ").trim();
-  const extractedFallbackActions = extractActionClauses(normalizedInput);
   const fallbackGroupId = cleanup.decision_groups[0]?.id ?? cleanup.items[0]?.decision_group ?? "group-1";
   const items = cleanup.items
     .map((item, index) => ({
@@ -1978,17 +2008,9 @@ export const analyzeStructuredClarityInput = (
       title: item.title.trim() || sanitizeAiActionTitle(item.title, normalizedInput),
     }))
     .filter((item) => item.title);
-  const aiCandidates = items.map((item, index) => buildAiCandidate(item, index, extractContextSignals([normalizedInput, ...cleanup.context, ...cleanup.tradeoffs].join(". "))));
-  const cleanedActionTitles = mergeMissingActionTexts(
-    aiCandidates.map((candidate) => candidate.title),
-    extractedFallbackActions
+  const aiCandidates = items.map((item, index) =>
+    buildAiCandidate(item, index, extractContextSignals([normalizedInput, ...cleanup.context, ...cleanup.tradeoffs].join(". ")))
   );
-  const fallbackCandidates = cleanedActionTitles
-    .filter(
-      (title) => aiCandidates.every((candidate) => candidate.title.trim().toLowerCase() !== buildCandidateTitle(title).trim().toLowerCase())
-    )
-    .map((title, index) => buildCandidate(title, aiCandidates.length + index, extractContextSignals([normalizedInput, ...cleanup.context, ...cleanup.tradeoffs].join(". "))));
-  const allCandidates = [...aiCandidates, ...fallbackCandidates];
   const decisionGroups = cleanup.decision_groups
     .map((group) => {
       const groupItems = items.filter((item) => item.decision_group === group.id);
@@ -2017,8 +2039,12 @@ export const analyzeStructuredClarityInput = (
     })
     .filter((group): group is ClarityDecisionGroup => Boolean(group));
   const contextSignals = extractContextSignals([normalizedInput, ...cleanup.context, ...cleanup.tradeoffs].join(". "));
-  if (!allCandidates.length) {
-    return analyzeClarityInput(normalizedInput, selectedDecisionGroupId);
+  if (!aiCandidates.length) {
+    return createClarityFailureAnalysis(
+      normalizedInput,
+      "I couldn't get a reliable Clarity read from that yet.",
+      "Try again with the same input, or switch to the manual breakdown if you want a deterministic read."
+    );
   }
 
   const hasSeparateDecisionGroups =
@@ -2029,12 +2055,12 @@ export const analyzeStructuredClarityInput = (
     ? decisionGroups.find((group) => group.id === selectedDecisionGroupId)
     : undefined;
   const activeCandidates = selectedDecisionGroup
-    ? allCandidates.filter((candidate) =>
+    ? aiCandidates.filter((candidate) =>
         items
           .filter((item) => item.decision_group === selectedDecisionGroup.id)
           .some((item) => buildCandidateTitle(item.title).toLowerCase() === candidate.title.toLowerCase())
       )
-    : allCandidates;
+    : aiCandidates;
   const visibleDecisionGroups = hasSeparateDecisionGroups ? decisionGroups : [];
   const candidateRelationship =
     selectedDecisionGroup?.candidateRelationship ??
@@ -2046,6 +2072,14 @@ export const analyzeStructuredClarityInput = (
   };
   if (!visiblePresentation.show_now.length && activeCandidates[0]) {
     visiblePresentation.show_now = [activeCandidates[0].id];
+  }
+
+  if (!activeCandidates.length) {
+    return createClarityFailureAnalysis(
+      normalizedInput,
+      "I couldn't get a reliable Clarity read from that yet.",
+      "Try again, or switch to the manual breakdown if you want a deterministic read."
+    );
   }
 
   return finalizeAnalysis(
@@ -2086,7 +2120,6 @@ export const analyzeClarityInput = (rawInput: string, selectedDecisionGroupId?: 
     const safeFallback = buildCandidate("Clarify the concrete action options", 0, contextSignals);
 
     return finalizeAnalysis(normalizedInput, "fog", [safeFallback], undefined, undefined, {
-      source: "fallback",
       candidateRelationship: "tasks",
       decisionGroups,
       activeDecisionGroupId: analysisDecisionGroup?.id,
@@ -2122,7 +2155,6 @@ export const analyzeClarityInput = (rawInput: string, selectedDecisionGroupId?: 
     extractedCandidates.length > compareCandidates.length ? extractedCandidates.length : undefined,
     undefined,
     {
-      source: "fallback",
       candidateRelationship,
       decisionGroups,
       activeDecisionGroupId: analysisDecisionGroup?.id,
@@ -2136,15 +2168,15 @@ export const focusClarityDecisionGroup = (
   analysis: ClarityAnalysis,
   decisionGroupId: string
 ): ClarityAnalysis =>
-  analysis.source === "ai" && analysis.structuredCleanup
+  analysis.status === "ready" && analysis.structuredCleanup
     ? analyzeStructuredClarityInput(analysis.rawInput, analysis.structuredCleanup, decisionGroupId)
-    : analyzeClarityInput(analysis.rawInput, decisionGroupId);
+    : analysis;
 
 export const answerClarityQuestion = (
   analysis: ClarityAnalysis,
   selectedCandidateId: string
 ): ClarityAnalysis => {
-  if (!analysis.question) {
+  if (analysis.status !== "ready" || !analysis.question || !analysis.firstMove) {
     return analysis;
   }
 

@@ -688,6 +688,31 @@ const mergeMissingActionTexts = (primaryActionTexts: string[], fallbackActionTex
   return merged;
 };
 
+const shouldKeepStructuredActionsCombined = (
+  cleanup: AiCleanupResult,
+  decisionGroups: ClarityDecisionGroup[],
+  selectedDecisionGroupId?: string
+) => {
+  if (selectedDecisionGroupId) {
+    return false;
+  }
+
+  if (cleanup.decision_type === "foggy_dump") {
+    return true;
+  }
+
+  if (decisionGroups.length <= 1) {
+    return false;
+  }
+
+  const allGroupsAreSingleAction = decisionGroups.every((group) => group.candidateTexts.length <= 1);
+  if (allGroupsAreSingleAction) {
+    return true;
+  }
+
+  return false;
+};
+
 const isShortNounLikeOption = (value: string) =>
   !/^(send|call|email|fix|rest|book|schedule|wait|move|take|protect|keep|follow up|reply|start)\b/i.test(
     value
@@ -1697,11 +1722,18 @@ export const analyzeStructuredClarityInput = (
     })
     .filter((group): group is ClarityDecisionGroup => Boolean(group));
 
+  const keepActionsCombined = shouldKeepStructuredActionsCombined(
+    cleanup,
+    decisionGroups,
+    selectedDecisionGroupId
+  );
   const selectedDecisionGroup = selectedDecisionGroupId
     ? decisionGroups.find((group) => group.id === selectedDecisionGroupId)
     : undefined;
   const autoPrimaryDecisionGroup =
-    !selectedDecisionGroup && decisionGroups.length ? pickPrimaryDecisionGroup(decisionGroups) : undefined;
+    !keepActionsCombined && !selectedDecisionGroup && decisionGroups.length
+      ? pickPrimaryDecisionGroup(decisionGroups)
+      : undefined;
   const analysisDecisionGroup = selectedDecisionGroup ?? autoPrimaryDecisionGroup;
   const activeActionTitles = analysisDecisionGroup
     ? analysisDecisionGroup.candidateTexts
@@ -1713,7 +1745,8 @@ export const analyzeStructuredClarityInput = (
   }
   const candidateRelationship = analysisDecisionGroup
     ? analysisDecisionGroup.candidateRelationship
-    : getRelationshipFromAiDecisionType(cleanup.decision_type);
+    : "tasks";
+  const visibleDecisionGroups = keepActionsCombined ? [] : decisionGroups;
 
   return finalizeAnalysis(
     normalizedInput,
@@ -1725,7 +1758,7 @@ export const analyzeStructuredClarityInput = (
       source: "ai",
       structuredCleanup: cleanup,
       candidateRelationship,
-      decisionGroups,
+      decisionGroups: visibleDecisionGroups,
       activeDecisionGroupId: analysisDecisionGroup?.id,
       contextSignals,
       decisionLabelTexts: activeActionTitles,

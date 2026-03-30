@@ -459,11 +459,24 @@ const normalizeAiCleanupResult = (value: unknown, rawInput = ""): AiCleanupResul
         typeof action.title === "string" &&
         typeof action.decision_group === "string"
     )
-    .map((action) => ({
-      title: salvageAiActionTitle(action.title, typeof action.details === "string" ? action.details.trim() : "", rawInput),
-      details: typeof action.details === "string" ? action.details.trim() : "",
-      decision_group: action.decision_group.trim(),
-    }))
+    .map((action) => {
+      const details = typeof action.details === "string" ? action.details.trim() : "";
+      const title = salvageAiActionTitle(action.title, details, rawInput);
+
+      if (!title && typeof __DEV__ !== "undefined" && __DEV__) {
+        console.debug("[ai-cleanup] dropped action after normalization", {
+          rawTitle: action.title,
+          rawDetails: details,
+          decisionGroup: action.decision_group,
+        });
+      }
+
+      return {
+        title,
+        details,
+        decision_group: action.decision_group.trim(),
+      };
+    })
     .filter((action) => action.title && action.decision_group)
     .slice(0, 8);
 

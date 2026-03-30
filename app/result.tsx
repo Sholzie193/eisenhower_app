@@ -122,8 +122,9 @@ function ClarityResultScreen() {
   }
 
   const { firstMove, question, waiting } = claritySession;
-  const needsDecisionGroupChoice =
-    claritySession.decisionGroups.length > 1 && !claritySession.activeDecisionGroupId;
+  const remainingDecisionGroups = claritySession.decisionGroups.filter(
+    (group) => group.id !== claritySession.activeDecisionGroupId
+  );
   const questionCandidates = question
     ? claritySession.candidates.filter((candidate) => question.candidateIds.includes(candidate.id))
     : [];
@@ -147,49 +148,37 @@ function ClarityResultScreen() {
         <Text style={[styles.subtitle, { color: theme.colors.textMuted }]}>{claritySession.summary}</Text>
       </View>
 
-      {needsDecisionGroupChoice ? (
-        <>
-          <NeuCard variant="flat" style={styles.questionCard}>
-            <Text style={[styles.label, { color: theme.colors.textSoft }]}>One quick choice</Text>
-            <Text style={[styles.questionPrompt, { color: theme.colors.text }]}>
-              Which decision do you want to clear up first?
-            </Text>
-            <View style={styles.questionOptions}>
-              {claritySession.decisionGroups.map((group) => (
-                <Pressable
-                  key={group.id}
-                  onPress={() => focusClarityDecisionGroup(group.id)}
-                  style={[
-                    styles.questionOption,
-                    {
-                      backgroundColor: theme.colors.surfaceInset,
-                      borderColor: theme.colors.stroke,
-                    },
-                  ]}
-                >
-                  <Text style={[styles.questionOptionText, { color: theme.colors.text }]}>
-                    {group.label}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-            <Text style={[styles.questionHint, { color: theme.colors.textSoft }]}>
-              This keeps separate choices from getting ranked against each other.
-            </Text>
-          </NeuCard>
-
-          <NeuButton
-            label="Start fresh"
-            variant="secondary"
-            onPress={() => {
-              clearClarity();
-              router.replace("/");
-            }}
-          />
-        </>
+      {remainingDecisionGroups.length ? (
+        <NeuCard variant="flat" style={styles.questionCard}>
+          <Text style={[styles.label, { color: theme.colors.textSoft }]}>Another decision is here</Text>
+          <Text style={[styles.questionPrompt, { color: theme.colors.text }]}>
+            {remainingDecisionGroups.length === 1
+              ? "There is another separate choice we can resolve next."
+              : `There are ${remainingDecisionGroups.length} other separate choices still unresolved.`}
+          </Text>
+          <View style={styles.questionOptions}>
+            {remainingDecisionGroups.map((group) => (
+              <Pressable
+                key={group.id}
+                onPress={() => focusClarityDecisionGroup(group.id)}
+                style={[
+                  styles.questionOption,
+                  {
+                    backgroundColor: theme.colors.surfaceInset,
+                    borderColor: theme.colors.stroke,
+                  },
+                ]}
+              >
+                <Text style={[styles.questionOptionText, { color: theme.colors.text }]}>
+                  {group.label}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        </NeuCard>
       ) : null}
 
-      {!needsDecisionGroupChoice ? (
+      {
         <>
           {question ? (
             <NeuCard variant="flat" style={styles.questionCard}>
@@ -336,7 +325,7 @@ function ClarityResultScreen() {
             }}
           />
         </>
-      ) : null}
+      }
     </ScreenShell>
   );
 }

@@ -43,12 +43,12 @@ const FOG_PHRASES = [
 
 const FILLER_PREFIXES = [
   /^do i\s+/i,
-  /^also i(?:['’]m| am) deciding whether to\s+/i,
-  /^also i(?:['’]m| am) trying to decide whether to\s+/i,
-  /^i(?:['’]m| am) deciding whether to\s+/i,
-  /^i(?:['’]m| am) trying to decide whether to\s+/i,
-  /^trying to decide whether to\s+/i,
-  /^need to decide whether to\s+/i,
+  /^also i(?:['’]m| am) (?:also\s+)?(?:still )?deciding whether (?:to|i should)\s+/i,
+  /^also i(?:['’]m| am) (?:also\s+)?(?:still )?trying to decide whether (?:to|i should)\s+/i,
+  /^i(?:['’]m| am) (?:also\s+)?(?:still )?deciding whether (?:to|i should)\s+/i,
+  /^i(?:['’]m| am) (?:also\s+)?(?:still )?trying to decide whether (?:to|i should)\s+/i,
+  /^(?:still )?trying to decide whether (?:to|i should)\s+/i,
+  /^need to (?:still )?decide whether (?:to|i should)\s+/i,
   /^decide whether to\s+/i,
   /^deciding whether to\s+/i,
   /^i don't know whether to\s+/i,
@@ -70,10 +70,10 @@ const OPTION_INTRO_PREFIXES = [
   /^whether to\s+/i,
   /^decide whether to\s+/i,
   /^deciding whether to\s+/i,
-  /^trying to decide whether to\s+/i,
-  /^need to decide whether to\s+/i,
-  /^i(?:['’]m| am) deciding whether to\s+/i,
-  /^i(?:['’]m| am) trying to decide whether to\s+/i,
+  /^(?:still )?trying to decide whether (?:to|i should)\s+/i,
+  /^need to (?:still )?decide whether (?:to|i should)\s+/i,
+  /^i(?:['’]m| am) (?:also\s+)?(?:still )?deciding whether (?:to|i should)\s+/i,
+  /^i(?:['’]m| am) (?:also\s+)?(?:still )?trying to decide whether (?:to|i should)\s+/i,
 ];
 const CONTEXT_PATTERNS: Array<{ kind: ContextSignalKind; label: string; expression: RegExp }> = [
   {
@@ -351,9 +351,16 @@ const getContextAlignmentScore = (text: string, contextSignals: ContextSignal[])
 const splitDecisionSegments = (rawInput: string) =>
   rawInput
     .replace(/\s+/g, " ")
-    .split(/(?<=[.?!])\s+|\s+(?=also\s+i(?:['’]m| am)\s+(?:trying to )?decid(?:e|ing))/i)
+    .split(
+      /(?<=[.?!])\s+|(?:,\s*|\s+)(?=(?:(?:also|and|plus)\s+)?(?:should i|do i|i(?:['’]m| am)\s+(?:also\s+)?(?:still\s+)?(?:trying to\s+)?decid(?:e|ing)|need to\s+(?:still\s+)?decide whether))/i
+    )
     .map((segment) => segment.trim())
     .filter(Boolean);
+
+const looksLikeDecisionLead = (value: string) =>
+  /^(?:also\s+)?(?:should i|do i|whether to|i(?:['’]m| am)\s+(?:also\s+)?(?:still\s+)?(?:trying to\s+)?decid(?:e|ing)|need to\s+(?:still\s+)?decide whether)/i.test(
+    value.trim()
+  );
 
 const inferCandidateRelationship = (
   sourceText: string,
@@ -382,7 +389,9 @@ const detectDecisionGroups = (rawInput: string): ClarityDecisionGroup[] =>
       const candidateTexts = extractCandidateTexts(segment);
       const relationship = inferCandidateRelationship(segment, candidateTexts);
 
-      if (relationship !== "alternatives" || candidateTexts.length < 2 || candidateTexts.length > 4) {
+      const isDecisionSegment = relationship === "alternatives" || looksLikeDecisionLead(segment);
+
+      if (!isDecisionSegment || candidateTexts.length < 1 || candidateTexts.length > 4) {
         return null;
       }
 
@@ -391,9 +400,26 @@ const detectDecisionGroups = (rawInput: string): ClarityDecisionGroup[] =>
         label: buildDecisionGroupLabel(candidateTexts),
         sourceText: segment.replace(/[.?!]+$/g, "").trim(),
         candidateTexts,
+        candidateRelationship: relationship,
       };
     })
     .filter((group): group is ClarityDecisionGroup => Boolean(group));
+
+const scoreDecisionGroup = (group: ClarityDecisionGroup) => {
+  const contextSignals = extractContextSignals(group.sourceText);
+  const candidates = group.candidateTexts.map((candidateText, index) =>
+    buildCandidate(candidateText, index, contextSignals)
+  );
+  const sortedCandidates = sortCandidates(candidates);
+  const highestDelay = Math.max(...sortedCandidates.map((candidate) => candidate.delayCostScore));
+  const hasDeadline = sortedCandidates.some((candidate) => candidate.triageAnswers.hasDeadline) ? 0.85 : 0;
+  const hardToUndoWeight = Math.max(...sortedCandidates.map((candidate) => 4 - candidate.reversibilityScore)) * 0.35;
+
+  return (sortedCandidates[0]?.compositeScore ?? 0) + highestDelay * 0.7 + hasDeadline + hardToUndoWeight;
+};
+
+const pickPrimaryDecisionGroup = (decisionGroups: ClarityDecisionGroup[]) =>
+  [...decisionGroups].sort((left, right) => scoreDecisionGroup(right) - scoreDecisionGroup(left))[0];
 
 const extractCandidateTexts = (rawInput: string) => {
   const binaryOptions = extractBinaryOptionTexts(rawInput);
@@ -871,14 +897,12 @@ const finalizeAnalysis = (
     contextKinds: contextSignals.map((signal) => signal.kind),
     contextHints: contextSignals.map((signal) => signal.label),
     summary:
-      decisionGroups.length > 1 && !activeDecisionGroupId
-        ? `I see ${decisionGroups.length} separate decisions here. Pick the one you want to clear up first.`
+      decisionGroups.length > 1 && activeDecisionGroupId
+        ? `I found ${decisionGroups.length} separate choices here. This resolves the one with the clearest immediate weight first, and another decision remains for later.`
         : decisionShape === "option_choice"
           ? decisionGate === "fast"
             ? "This looks like a contained choice, so the app kept the answer light and direct."
             : "This looks like a real option choice, so the app weighed the options before recommending the cleaner move."
-        : decisionGroups.length > 1 && activeDecisionGroupId
-          ? "This pass is keeping one decision in view so the options stay comparable."
           : getSummary(mode, enrichedCandidates.length, narrowedFromCount),
     firstMove: enrichedCandidates[0],
     candidates: enrichedCandidates,
@@ -897,8 +921,9 @@ export const analyzeClarityInput = (rawInput: string, selectedDecisionGroupId?: 
   const selectedDecisionGroup = selectedDecisionGroupId
     ? decisionGroups.find((group) => group.id === selectedDecisionGroupId)
     : undefined;
-  const previewDecisionGroup = !selectedDecisionGroup && decisionGroups.length > 1 ? decisionGroups[0] : undefined;
-  const analysisDecisionGroup = selectedDecisionGroup ?? previewDecisionGroup;
+  const autoPrimaryDecisionGroup =
+    !selectedDecisionGroup && decisionGroups.length > 1 ? pickPrimaryDecisionGroup(decisionGroups) : undefined;
+  const analysisDecisionGroup = selectedDecisionGroup ?? autoPrimaryDecisionGroup;
   const analysisInput = analysisDecisionGroup ? analysisDecisionGroup.sourceText : rawInput;
   const contextSignals = extractContextSignals(analysisInput);
   const extractedCandidates = analysisDecisionGroup
@@ -914,7 +939,7 @@ export const analyzeClarityInput = (rawInput: string, selectedDecisionGroupId?: 
   const sortedCandidates = sortCandidates(builtCandidates);
   const compareCandidates = sortedCandidates.slice(0, Math.min(sortedCandidates.length, 4));
   const candidateRelationship = analysisDecisionGroup
-    ? "alternatives"
+    ? analysisDecisionGroup.candidateRelationship
     : inferCandidateRelationship(analysisInput, extractedCandidates);
 
   const mode: ClarityMode =
@@ -935,7 +960,7 @@ export const analyzeClarityInput = (rawInput: string, selectedDecisionGroupId?: 
     {
       candidateRelationship,
       decisionGroups,
-      activeDecisionGroupId: selectedDecisionGroup?.id,
+      activeDecisionGroupId: analysisDecisionGroup?.id,
       contextSignals,
       decisionLabelTexts: narrowedCandidates,
     }

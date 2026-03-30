@@ -93,6 +93,7 @@ export interface ClarityDecisionGroup {
   label: string;
   sourceText: string;
   candidateTexts: string[];
+  candidateRelationship: ClarityCandidateRelationship;
 }
 
 export interface ClarityAnalysis {

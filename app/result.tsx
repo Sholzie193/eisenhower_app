@@ -10,7 +10,7 @@ import { evaluateTriage } from "../src/logic/triage";
 import { useAppData } from "../src/providers/app-provider";
 import { useAppTheme } from "../src/providers/theme-provider";
 import { goBackOrFallback } from "../src/utils/navigation";
-import type { ClarityCandidate } from "../src/types/decision";
+import type { ClarityAnalysis, ClarityCandidate } from "../src/types/decision";
 
 const getClarityLabel = (candidate: ClarityCandidate) => {
   switch (candidate.triageResult.quadrant) {
@@ -40,7 +40,48 @@ const getWaitCopy = (candidate: ClarityCandidate) => {
   }
 };
 
-const getModeHeading = (mode: "single" | "compare" | "fog") => {
+const getWaitingHeading = (analysis: ClarityAnalysis) => {
+  if (analysis.activeDecisionGroupId) {
+    return "Not the first move";
+  }
+
+  if (analysis.candidateRelationship === "alternatives" && analysis.mode !== "single") {
+    return "Other options";
+  }
+
+  return "This can wait";
+};
+
+const getWaitingEmptyCopy = (analysis: ClarityAnalysis) => {
+  if (analysis.activeDecisionGroupId) {
+    return "Nothing else in this decision looks clearer than the move above.";
+  }
+
+  if (analysis.candidateRelationship === "alternatives" && analysis.mode !== "single") {
+    return "No other option in this comparison looks stronger than the move above.";
+  }
+
+  return "Nothing else in this input looks more important than the move above.";
+};
+
+const getAdaptiveWaitCopy = (analysis: ClarityAnalysis, candidate: ClarityCandidate) => {
+  if (analysis.activeDecisionGroupId) {
+    return "A real option, just not the clearest first move inside this decision.";
+  }
+
+  if (analysis.candidateRelationship === "alternatives" && analysis.mode !== "single") {
+    return "Still valid, just not the strongest option to act on first.";
+  }
+
+  return getWaitCopy(candidate);
+};
+
+const getModeHeading = (analysis: ClarityAnalysis) => {
+  if (analysis.decisionGroups.length > 1 && !analysis.activeDecisionGroupId) {
+    return "Let’s separate the decisions.";
+  }
+
+  const { mode } = analysis;
   if (mode === "single") {
     return "This looks like the move.";
   }
@@ -57,6 +98,7 @@ function ClarityResultScreen() {
     answerClarityQuestion,
     claritySession,
     clearClarity,
+    focusClarityDecisionGroup,
     saveClarityCandidate,
     startDraft,
   } = useAppData();
@@ -68,6 +110,8 @@ function ClarityResultScreen() {
   }
 
   const { firstMove, question, waiting } = claritySession;
+  const needsDecisionGroupChoice =
+    claritySession.decisionGroups.length > 1 && !claritySession.activeDecisionGroupId;
   const questionCandidates = question
     ? claritySession.candidates.filter((candidate) => question.candidateIds.includes(candidate.id))
     : [];
@@ -87,142 +131,190 @@ function ClarityResultScreen() {
       </View>
 
       <View style={styles.titleBlock}>
-        <Text style={[styles.title, { color: theme.colors.text }]}>{getModeHeading(claritySession.mode)}</Text>
+        <Text style={[styles.title, { color: theme.colors.text }]}>{getModeHeading(claritySession)}</Text>
         <Text style={[styles.subtitle, { color: theme.colors.textMuted }]}>{claritySession.summary}</Text>
       </View>
 
-      {question ? (
-        <NeuCard variant="flat" style={styles.questionCard}>
-          <Text style={[styles.label, { color: theme.colors.textSoft }]}>One quick question</Text>
-          <Text style={[styles.questionPrompt, { color: theme.colors.text }]}>{question.prompt}</Text>
-          <View style={styles.questionOptions}>
-            {questionCandidates.map((candidate) => (
-              <Pressable
-                key={candidate.id}
-                onPress={() => answerClarityQuestion(candidate.id)}
-                style={[
-                  styles.questionOption,
-                  {
-                    backgroundColor: theme.colors.surfaceInset,
-                    borderColor: theme.colors.stroke,
-                  },
-                ]}
-              >
-                <Text style={[styles.questionOptionText, { color: theme.colors.text }]}>
-                  {candidate.title}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-          <Text style={[styles.questionHint, { color: theme.colors.textSoft }]}>
-            The app is already leaning toward a first move below. This just sharpens the read.
-          </Text>
-        </NeuCard>
+      {needsDecisionGroupChoice ? (
+        <>
+          <NeuCard variant="flat" style={styles.questionCard}>
+            <Text style={[styles.label, { color: theme.colors.textSoft }]}>One quick choice</Text>
+            <Text style={[styles.questionPrompt, { color: theme.colors.text }]}>
+              Which decision do you want to clear up first?
+            </Text>
+            <View style={styles.questionOptions}>
+              {claritySession.decisionGroups.map((group) => (
+                <Pressable
+                  key={group.id}
+                  onPress={() => focusClarityDecisionGroup(group.id)}
+                  style={[
+                    styles.questionOption,
+                    {
+                      backgroundColor: theme.colors.surfaceInset,
+                      borderColor: theme.colors.stroke,
+                    },
+                  ]}
+                >
+                  <Text style={[styles.questionOptionText, { color: theme.colors.text }]}>
+                    {group.label}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+            <Text style={[styles.questionHint, { color: theme.colors.textSoft }]}>
+              This keeps separate choices from getting ranked against each other.
+            </Text>
+          </NeuCard>
+
+          <NeuButton
+            label="Start fresh"
+            variant="secondary"
+            onPress={() => {
+              clearClarity();
+              router.replace("/");
+            }}
+          />
+        </>
       ) : null}
 
-      <NeuCard style={styles.heroCard}>
-        <View style={styles.heroTop}>
-          <QuadrantPill quadrant={firstMove.triageResult.quadrant} />
-          <Text style={[styles.heroTag, { color: theme.quadrants[firstMove.triageResult.quadrant].solid }]}>
-            {getClarityLabel(firstMove)}
-          </Text>
-        </View>
-
-        <Text style={[styles.primaryTitle, { color: theme.colors.text }]}>{firstMove.title}</Text>
-        <Text style={[styles.primaryWhy, { color: theme.colors.textMuted }]}>{firstMove.calmingWhy}</Text>
-      </NeuCard>
-
-      <NeuCard variant="flat" style={styles.nextCard}>
-        <Text style={[styles.label, { color: theme.colors.textSoft }]}>What to do now</Text>
-        <Text style={[styles.nextMove, { color: theme.colors.text }]}>{firstMove.triageResult.recommendation}</Text>
-        <Text style={[styles.nextStep, { color: theme.colors.textMuted }]}>{firstMove.triageResult.nextStep}</Text>
-      </NeuCard>
-
-      <NeuCard variant="flat" style={styles.waitCard}>
-        <Text style={[styles.label, { color: theme.colors.textSoft }]}>This can wait</Text>
-        {waiting.length ? (
-          <View style={styles.waitList}>
-            {waiting.slice(0, 3).map((candidate) => (
-              <View key={candidate.id} style={styles.waitRow}>
-                <Text style={[styles.waitTitle, { color: theme.colors.text }]}>{candidate.title}</Text>
-                <Text style={[styles.waitText, { color: theme.colors.textMuted }]}>{getWaitCopy(candidate)}</Text>
+      {!needsDecisionGroupChoice ? (
+        <>
+          {question ? (
+            <NeuCard variant="flat" style={styles.questionCard}>
+              <Text style={[styles.label, { color: theme.colors.textSoft }]}>One quick question</Text>
+              <Text style={[styles.questionPrompt, { color: theme.colors.text }]}>{question.prompt}</Text>
+              <View style={styles.questionOptions}>
+                {questionCandidates.map((candidate) => (
+                  <Pressable
+                    key={candidate.id}
+                    onPress={() => answerClarityQuestion(candidate.id)}
+                    style={[
+                      styles.questionOption,
+                      {
+                        backgroundColor: theme.colors.surfaceInset,
+                        borderColor: theme.colors.stroke,
+                      },
+                    ]}
+                  >
+                    <Text style={[styles.questionOptionText, { color: theme.colors.text }]}>
+                      {candidate.title}
+                    </Text>
+                  </Pressable>
+                ))}
               </View>
-            ))}
-            {claritySession.narrowedFromCount && claritySession.narrowedFromCount > claritySession.candidates.length ? (
-              <Text style={[styles.waitFootnote, { color: theme.colors.textSoft }]}>
-                {claritySession.narrowedFromCount - claritySession.candidates.length} more idea
-                {claritySession.narrowedFromCount - claritySession.candidates.length === 1 ? "" : "s"} stayed in
-                the background for now.
-              </Text>
-            ) : null}
-          </View>
-        ) : (
-          <Text style={[styles.waitText, { color: theme.colors.textMuted }]}>
-            Nothing else in this input looks more important than the move above.
-          </Text>
-        )}
-      </NeuCard>
-
-      <Pressable onPress={() => setShowBreakdown((currentValue) => !currentValue)}>
-        <NeuCard variant="flat" style={styles.breakdownToggle}>
-          <Text style={[styles.breakdownTitle, { color: theme.colors.text }]}>
-            {showBreakdown ? "Hide deeper breakdown" : "See deeper breakdown"}
-          </Text>
-          <Text style={[styles.breakdownCopy, { color: theme.colors.textMuted }]}>
-            Matrix signals and ordering stay available, just not first.
-          </Text>
-        </NeuCard>
-      </Pressable>
-
-      {showBreakdown ? (
-        <View style={styles.breakdownList}>
-          {claritySession.candidates.map((candidate, index) => (
-            <NeuCard key={candidate.id} variant="flat" style={styles.breakdownCard}>
-              <View style={styles.breakdownTop}>
-                <Text style={[styles.breakdownRank, { color: theme.colors.textSoft }]}>#{index + 1}</Text>
-                <QuadrantPill quadrant={candidate.triageResult.quadrant} compact />
-              </View>
-              <Text style={[styles.breakdownCandidateTitle, { color: theme.colors.text }]}>{candidate.title}</Text>
-              <Text style={[styles.breakdownCandidateCopy, { color: theme.colors.textMuted }]}>
-                {candidate.triageResult.explanation}
+              <Text style={[styles.questionHint, { color: theme.colors.textSoft }]}>
+                The app is already leaning toward a first move below. This just sharpens the read.
               </Text>
             </NeuCard>
-          ))}
-        </View>
-      ) : null}
+          ) : null}
 
-      <NeuButton
-        label="Save first move"
-        onPress={() => {
-          const savedId = saveClarityCandidate(firstMove, claritySession.rawInput);
-          clearClarity();
-          router.replace(`/item/${savedId}`);
-        }}
-      />
-      <NeuButton
-        label="Refine manually"
-        variant="secondary"
-        onPress={() => {
-          startDraft({
-            title: firstMove.title,
-            notes:
-              claritySession.rawInput.trim().toLowerCase() === firstMove.title.trim().toLowerCase()
-                ? ""
-                : claritySession.rawInput.trim(),
-            category: firstMove.category,
-            triageAnswers: firstMove.triageAnswers,
-          });
-          router.replace("/add");
-        }}
-      />
-      <NeuButton
-        label="Start fresh"
-        variant="secondary"
-        onPress={() => {
-          clearClarity();
-          router.replace("/");
-        }}
-      />
+          <NeuCard style={styles.heroCard}>
+            <View style={styles.heroTop}>
+              <QuadrantPill quadrant={firstMove.triageResult.quadrant} />
+              <Text style={[styles.heroTag, { color: theme.quadrants[firstMove.triageResult.quadrant].solid }]}>
+                {getClarityLabel(firstMove)}
+              </Text>
+            </View>
+
+            <Text style={[styles.primaryTitle, { color: theme.colors.text }]}>{firstMove.title}</Text>
+            <Text style={[styles.primaryWhy, { color: theme.colors.textMuted }]}>{firstMove.calmingWhy}</Text>
+          </NeuCard>
+
+          <NeuCard variant="flat" style={styles.nextCard}>
+            <Text style={[styles.label, { color: theme.colors.textSoft }]}>What to do now</Text>
+            <Text style={[styles.nextMove, { color: theme.colors.text }]}>{firstMove.triageResult.recommendation}</Text>
+            <Text style={[styles.nextStep, { color: theme.colors.textMuted }]}>{firstMove.triageResult.nextStep}</Text>
+          </NeuCard>
+
+          <NeuCard variant="flat" style={styles.waitCard}>
+            <Text style={[styles.label, { color: theme.colors.textSoft }]}>{getWaitingHeading(claritySession)}</Text>
+            {waiting.length ? (
+              <View style={styles.waitList}>
+                {waiting.slice(0, 3).map((candidate) => (
+                  <View key={candidate.id} style={styles.waitRow}>
+                    <Text style={[styles.waitTitle, { color: theme.colors.text }]}>{candidate.title}</Text>
+                    <Text style={[styles.waitText, { color: theme.colors.textMuted }]}>
+                      {getAdaptiveWaitCopy(claritySession, candidate)}
+                    </Text>
+                  </View>
+                ))}
+                {claritySession.narrowedFromCount && claritySession.narrowedFromCount > claritySession.candidates.length ? (
+                  <Text style={[styles.waitFootnote, { color: theme.colors.textSoft }]}>
+                    {claritySession.narrowedFromCount - claritySession.candidates.length} more idea
+                    {claritySession.narrowedFromCount - claritySession.candidates.length === 1 ? "" : "s"} stayed in
+                    the background for now.
+                  </Text>
+                ) : null}
+              </View>
+            ) : (
+              <Text style={[styles.waitText, { color: theme.colors.textMuted }]}>
+                {getWaitingEmptyCopy(claritySession)}
+              </Text>
+            )}
+          </NeuCard>
+
+          <Pressable onPress={() => setShowBreakdown((currentValue) => !currentValue)}>
+            <NeuCard variant="flat" style={styles.breakdownToggle}>
+              <Text style={[styles.breakdownTitle, { color: theme.colors.text }]}>
+                {showBreakdown ? "Hide deeper breakdown" : "See deeper breakdown"}
+              </Text>
+              <Text style={[styles.breakdownCopy, { color: theme.colors.textMuted }]}>
+                Matrix signals and ordering stay available, just not first.
+              </Text>
+            </NeuCard>
+          </Pressable>
+
+          {showBreakdown ? (
+            <View style={styles.breakdownList}>
+              {claritySession.candidates.map((candidate, index) => (
+                <NeuCard key={candidate.id} variant="flat" style={styles.breakdownCard}>
+                  <View style={styles.breakdownTop}>
+                    <Text style={[styles.breakdownRank, { color: theme.colors.textSoft }]}>#{index + 1}</Text>
+                    <QuadrantPill quadrant={candidate.triageResult.quadrant} compact />
+                  </View>
+                  <Text style={[styles.breakdownCandidateTitle, { color: theme.colors.text }]}>{candidate.title}</Text>
+                  <Text style={[styles.breakdownCandidateCopy, { color: theme.colors.textMuted }]}>
+                    {candidate.triageResult.explanation}
+                  </Text>
+                </NeuCard>
+              ))}
+            </View>
+          ) : null}
+
+          <NeuButton
+            label="Save first move"
+            onPress={() => {
+              const savedId = saveClarityCandidate(firstMove, claritySession.rawInput);
+              clearClarity();
+              router.replace(`/item/${savedId}`);
+            }}
+          />
+          <NeuButton
+            label="Refine manually"
+            variant="secondary"
+            onPress={() => {
+              startDraft({
+                title: firstMove.title,
+                notes:
+                  claritySession.rawInput.trim().toLowerCase() === firstMove.title.trim().toLowerCase()
+                    ? ""
+                    : claritySession.rawInput.trim(),
+                category: firstMove.category,
+                triageAnswers: firstMove.triageAnswers,
+              });
+              router.replace("/add");
+            }}
+          />
+          <NeuButton
+            label="Start fresh"
+            variant="secondary"
+            onPress={() => {
+              clearClarity();
+              router.replace("/");
+            }}
+          />
+        </>
+      ) : null}
     </ScreenShell>
   );
 }

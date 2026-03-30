@@ -61,6 +61,7 @@ export interface TriageResult {
 
 export type ClarityMode = "single" | "compare" | "fog";
 export type ClarityQuestionKind = "deadline" | "relief" | "downside" | "longTerm";
+export type ClarityCandidateRelationship = "tasks" | "alternatives";
 
 export interface ClarityCandidate {
   id: string;
@@ -84,6 +85,13 @@ export interface ClarityQuestion {
   selectedId?: string;
 }
 
+export interface ClarityDecisionGroup {
+  id: string;
+  label: string;
+  sourceText: string;
+  candidateTexts: string[];
+}
+
 export interface ClarityAnalysis {
   rawInput: string;
   mode: ClarityMode;
@@ -92,5 +100,8 @@ export interface ClarityAnalysis {
   candidates: ClarityCandidate[];
   waiting: ClarityCandidate[];
   question: ClarityQuestion | null;
+  candidateRelationship: ClarityCandidateRelationship;
+  decisionGroups: ClarityDecisionGroup[];
+  activeDecisionGroupId?: string;
   narrowedFromCount?: number;
 }

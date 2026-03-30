@@ -3,6 +3,8 @@ import { evaluateTriage } from "./triage";
 import type {
   ClarityAnalysis,
   ClarityCandidate,
+  ClarityCandidateRelationship,
+  ClarityDecisionGroup,
   ClarityMode,
   ClarityQuestion,
   ClarityQuestionKind,
@@ -26,18 +28,27 @@ const FOG_PHRASES = [
 ];
 
 const FILLER_PREFIXES = [
+  /^also i(?:['’]m| am) deciding whether to\s+/i,
+  /^also i(?:['’]m| am) trying to decide whether to\s+/i,
+  /^i(?:['’]m| am) deciding whether to\s+/i,
+  /^i(?:['’]m| am) trying to decide whether to\s+/i,
+  /^trying to decide whether to\s+/i,
+  /^need to decide whether to\s+/i,
+  /^decide whether to\s+/i,
+  /^deciding whether to\s+/i,
+  /^i don't know whether to\s+/i,
+  /^i dont know whether to\s+/i,
+  /^whether to\s+/i,
   /^i need to\s+/i,
   /^need to\s+/i,
   /^i should\s+/i,
   /^should i\s+/i,
-  /^trying to decide whether to\s+/i,
-  /^need to decide whether to\s+/i,
-  /^i don't know whether to\s+/i,
-  /^i dont know whether to\s+/i,
-  /^whether to\s+/i,
+  /^also\s+/i,
   /^and\s+/i,
   /^or\s+/i,
 ];
+
+const TITLE_PREFIXES = [/^focus on getting\s+/i, /^focus on\s+/i, /^getting\s+/i, /^do\s+/i];
 
 const AREA_KEYWORDS: Record<ImpactArea, RegExp[]> = {
   money: [/\bbill\b/i, /\binvoice\b/i, /\bbudget\b/i, /\bpayment\b/i, /\bcash\b/i, /\bmoney\b/i, /\brent\b/i],
@@ -121,8 +132,68 @@ const cleanCandidate = (value: string) => {
     withoutBullets
   );
 
-  return withoutPrefixes.replace(/\s+/g, " ").trim();
+  return withoutPrefixes.replace(/[.?!]+$/g, "").replace(/\s+/g, " ").trim();
 };
+
+const toSentenceCase = (value: string) => value.charAt(0).toUpperCase() + value.slice(1);
+
+const buildCandidateTitle = (value: string) => {
+  const cleaned = cleanCandidate(value);
+  const withoutContext = cleaned.replace(/\s+(?:because|since|so that|so|as)\s+.+$/i, "").trim();
+  const simplified = TITLE_PREFIXES.reduce(
+    (currentValue, expression) => currentValue.replace(expression, ""),
+    withoutContext
+  ).trim();
+
+  return toSentenceCase((simplified || withoutContext || cleaned).replace(/[.?!]+$/g, "").trim());
+};
+
+const splitDecisionSegments = (rawInput: string) =>
+  rawInput
+    .replace(/\s+/g, " ")
+    .split(/(?<=[.?!])\s+|\s+(?=also\s+i(?:['’]m| am)\s+(?:trying to )?decid(?:e|ing))/i)
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+
+const inferCandidateRelationship = (
+  sourceText: string,
+  candidateTexts: string[]
+): ClarityCandidateRelationship =>
+  candidateTexts.length > 1 && (hasExplicitCompareScaffold(sourceText) || /\s+\bor\b\s+/i.test(sourceText))
+    ? "alternatives"
+    : "tasks";
+
+const buildDecisionGroupLabel = (candidateTexts: string[]) => {
+  const titles = candidateTexts.map(buildCandidateTitle);
+  if (titles.length <= 1) {
+    return titles[0] ?? "This decision";
+  }
+
+  if (titles.length === 2) {
+    return `${titles[0]} or ${titles[1]}`;
+  }
+
+  return `${titles.slice(0, 2).join(", ")}, and ${titles[2]}`;
+};
+
+const detectDecisionGroups = (rawInput: string): ClarityDecisionGroup[] =>
+  splitDecisionSegments(rawInput)
+    .map((segment, index) => {
+      const candidateTexts = extractCandidateTexts(segment);
+      const relationship = inferCandidateRelationship(segment, candidateTexts);
+
+      if (relationship !== "alternatives" || candidateTexts.length < 2 || candidateTexts.length > 4) {
+        return null;
+      }
+
+      return {
+        id: `decision-group-${index + 1}`,
+        label: buildDecisionGroupLabel(candidateTexts),
+        sourceText: segment.replace(/[.?!]+$/g, "").trim(),
+        candidateTexts,
+      };
+    })
+    .filter((group): group is ClarityDecisionGroup => Boolean(group));
 
 const extractCandidateTexts = (rawInput: string) => {
   const normalized = rawInput
@@ -327,12 +398,12 @@ const buildCandidate = (sourceText: string, index: number): ClarityCandidate => 
     reversibilityScore
   );
 
-  const title = sourceText.charAt(0).toUpperCase() + sourceText.slice(1);
+  const title = buildCandidateTitle(sourceText);
 
   const candidate: ClarityCandidate = {
     id: `candidate-${index + 1}`,
     title,
-    sourceText: title,
+    sourceText: toSentenceCase(cleanCandidate(sourceText)),
     category: getSuggestedCategory(impactAreas),
     triageAnswers,
     triageResult,
@@ -451,14 +522,26 @@ const finalizeAnalysis = (
   mode: ClarityMode,
   candidates: ClarityCandidate[],
   narrowedFromCount?: number,
-  selectedId?: string
+  selectedId?: string,
+  options?: {
+    candidateRelationship?: ClarityCandidateRelationship;
+    decisionGroups?: ClarityDecisionGroup[];
+    activeDecisionGroupId?: string;
+  }
 ): ClarityAnalysis => {
   const sortedCandidates = sortCandidates(candidates);
   const topCandidates = sortedCandidates.slice(0, 2);
+  const candidateRelationship = options?.candidateRelationship ?? "tasks";
+  const decisionGroups = options?.decisionGroups ?? [];
+  const activeDecisionGroupId = options?.activeDecisionGroupId;
   const scoreGap =
     topCandidates.length === 2 ? topCandidates[0].compositeScore - topCandidates[1].compositeScore : 9;
   const shouldAskQuestion =
-    !selectedId && mode !== "single" && topCandidates.length === 2 && scoreGap < 0.95;
+    !selectedId &&
+    mode !== "single" &&
+    topCandidates.length === 2 &&
+    scoreGap < 0.95 &&
+    !(decisionGroups.length > 1 && !activeDecisionGroupId);
 
   const question: ClarityQuestion | null = shouldAskQuestion
     ? {
@@ -471,25 +554,45 @@ const finalizeAnalysis = (
   return {
     rawInput,
     mode,
-    summary: getSummary(mode, sortedCandidates.length, narrowedFromCount),
+    summary:
+      decisionGroups.length > 1 && !activeDecisionGroupId
+        ? `I see ${decisionGroups.length} separate decisions here. Pick the one you want to clear up first.`
+        : decisionGroups.length > 1 && activeDecisionGroupId
+          ? "This pass is keeping one decision in view so the options stay comparable."
+          : getSummary(mode, sortedCandidates.length, narrowedFromCount),
     firstMove: sortedCandidates[0],
     candidates: sortedCandidates,
     waiting: sortedCandidates.slice(1),
     question,
+    candidateRelationship,
+    decisionGroups,
+    activeDecisionGroupId,
     narrowedFromCount,
   };
 };
 
-export const analyzeClarityInput = (rawInput: string): ClarityAnalysis => {
+export const analyzeClarityInput = (rawInput: string, selectedDecisionGroupId?: string): ClarityAnalysis => {
   const normalizedInput = rawInput.replace(/\s+/g, " ").trim();
-  const extractedCandidates = extractCandidateTexts(rawInput);
-  const lowerInput = normalizedInput.toLowerCase();
+  const decisionGroups = detectDecisionGroups(normalizedInput);
+  const selectedDecisionGroup = selectedDecisionGroupId
+    ? decisionGroups.find((group) => group.id === selectedDecisionGroupId)
+    : undefined;
+  const previewDecisionGroup = !selectedDecisionGroup && decisionGroups.length > 1 ? decisionGroups[0] : undefined;
+  const analysisDecisionGroup = selectedDecisionGroup ?? previewDecisionGroup;
+  const analysisInput = analysisDecisionGroup ? analysisDecisionGroup.sourceText : rawInput;
+  const extractedCandidates = analysisDecisionGroup
+    ? analysisDecisionGroup.candidateTexts
+    : extractCandidateTexts(analysisInput);
+  const lowerInput = analysisInput.replace(/\s+/g, " ").trim().toLowerCase();
   const containsFogLanguage = FOG_PHRASES.some((phrase) => lowerInput.includes(phrase));
-  const isParagraphLike = normalizedInput.split(/\s+/).length > 18 || /[.?!]/.test(normalizedInput);
+  const isParagraphLike = analysisInput.split(/\s+/).length > 18 || /[.?!]/.test(analysisInput);
   const narrowedCandidates = extractedCandidates.slice(0, 6);
   const builtCandidates = narrowedCandidates.map(buildCandidate);
   const sortedCandidates = sortCandidates(builtCandidates);
   const compareCandidates = sortedCandidates.slice(0, Math.min(sortedCandidates.length, 4));
+  const candidateRelationship = analysisDecisionGroup
+    ? "alternatives"
+    : inferCandidateRelationship(analysisInput, extractedCandidates);
 
   const mode: ClarityMode =
     extractedCandidates.length > 4
@@ -504,9 +607,20 @@ export const analyzeClarityInput = (rawInput: string): ClarityAnalysis => {
     normalizedInput,
     mode,
     compareCandidates,
-    extractedCandidates.length > compareCandidates.length ? extractedCandidates.length : undefined
+    extractedCandidates.length > compareCandidates.length ? extractedCandidates.length : undefined,
+    undefined,
+    {
+      candidateRelationship,
+      decisionGroups,
+      activeDecisionGroupId: selectedDecisionGroup?.id,
+    }
   );
 };
+
+export const focusClarityDecisionGroup = (
+  analysis: ClarityAnalysis,
+  decisionGroupId: string
+): ClarityAnalysis => analyzeClarityInput(analysis.rawInput, decisionGroupId);
 
 export const answerClarityQuestion = (
   analysis: ClarityAnalysis,
@@ -562,6 +676,11 @@ export const answerClarityQuestion = (
     analysis.mode,
     boostedCandidates,
     analysis.narrowedFromCount,
-    selectedCandidateId
+    selectedCandidateId,
+    {
+      candidateRelationship: analysis.candidateRelationship,
+      decisionGroups: analysis.decisionGroups,
+      activeDecisionGroupId: analysis.activeDecisionGroupId,
+    }
   );
 };

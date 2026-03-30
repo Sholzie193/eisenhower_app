@@ -734,6 +734,10 @@ const shouldKeepStructuredActionsCombined = (
     return false;
   }
 
+  if (cleanedActionTitles.length >= 3) {
+    return true;
+  }
+
   if (cleanup.decision_type === "foggy_dump") {
     return true;
   }

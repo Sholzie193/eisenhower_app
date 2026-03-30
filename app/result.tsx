@@ -303,6 +303,24 @@ function ClarityResultScreen() {
             ) : null}
             <Text style={[styles.primaryTitle, { color: theme.colors.text }]}>{firstMove.title}</Text>
             <Text style={[styles.primaryWhy, { color: theme.colors.textMuted }]}>{firstMove.calmingWhy}</Text>
+            {firstMove.reasonTags.length ? (
+              <View style={styles.factorRow}>
+                {firstMove.reasonTags.map((tag) => (
+                  <View
+                    key={tag}
+                    style={[
+                      styles.factorChip,
+                      {
+                        backgroundColor: theme.colors.surfaceInset,
+                        borderColor: theme.colors.stroke,
+                      },
+                    ]}
+                  >
+                    <Text style={[styles.factorText, { color: theme.colors.textSoft }]}>{tag}</Text>
+                  </View>
+                ))}
+              </View>
+            ) : null}
             {claritySession.contextHints.length ? (
               <Text style={[styles.waitFootnote, { color: theme.colors.textSoft }]}>
                 {claritySession.contextHints[0]}
@@ -560,6 +578,24 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 22,
     fontFamily: "IBMPlexSans_500Medium",
+  },
+  factorRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  factorChip: {
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  factorText: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontFamily: "IBMPlexSans_600SemiBold",
+    textTransform: "uppercase",
+    letterSpacing: 0.6,
   },
   label: {
     fontSize: 12,

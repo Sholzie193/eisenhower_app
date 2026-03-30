@@ -28,6 +28,12 @@ interface ContextSignal {
   label: string;
 }
 
+interface ReasonFactor {
+  tag: string;
+  weight: number;
+  explanation: string;
+}
+
 const FOG_PHRASES = [
   "don't know",
   "dont know",
@@ -90,7 +96,8 @@ const CONTEXT_PATTERNS: Array<{ kind: ContextSignalKind; label: string; expressi
   {
     kind: "moneySpeed",
     label: "Cash timing seems to matter here.",
-    expression: /\b(?:money faster|get paid faster|paid faster|receive money faster|cash faster|sooner)\b/i,
+    expression:
+      /\b(?:money faster|get paid faster|paid faster|receive money faster|receive money from (?:them|this) faster|cash faster|pay faster|sooner)\b/i,
   },
   {
     kind: "higherValue",
@@ -124,7 +131,7 @@ const KEYWORDS = {
     /\bdue\s+(?:today|tonight|tomorrow|this week|this weekend|weekend|monday|tuesday|wednesday|thursday|friday|saturday|sunday|later)\b/i,
     /\b(?:by|before)\s+(?:today|tonight|tomorrow|this week|this weekend|weekend|monday|tuesday|wednesday|thursday|friday|saturday|sunday|eod|end of day|\d{1,2}(?::\d{2})?\s?(?:am|pm)?)\b/i,
   ],
-  severeDelay: [/\blandlord\b/i, /\brent\b/i, /\binvoice\b/i, /\bhealth\b/i, /\bdoctor\b/i, /\bpay\b/i],
+  severeDelay: [/\blandlord\b/i, /\brent\b/i, /\binvoice\b/i, /\bhealth\b/i, /\bdoctor\b/i, /\bpayment\b/i],
   disruptiveDelay: [/\bclient\b/i, /\bproposal\b/i, /\bwebsite\b/i, /\boutreach\b/i, /\badmin\b/i, /\bemail\b/i, /\bmeeting\b/i, /\bdocs?\b/i, /\bcall\b/i],
   relief: [/\binbox\b/i, /\badmin\b/i, /\bemail\b/i, /\blandlord\b/i, /\bcall\b/i, /\bdocs?\b/i, /\breply\b/i, /\bdecision\b/i, /\brest\b/i],
   longTerm: [/\bproposal\b/i, /\bwebsite\b/i, /\bhealth\b/i, /\bexercise\b/i, /\bstrategy\b/i, /\bgoal\b/i, /\bplan\b/i],
@@ -133,6 +140,13 @@ const KEYWORDS = {
 };
 
 const clamp = (value: number, min = 0, max = 4) => Math.max(min, Math.min(max, Number(value.toFixed(2))));
+const DUE_WINDOW_PRIORITY: Record<DueWindow, number> = {
+  today: 4,
+  tomorrow: 3,
+  thisWeek: 2,
+  later: 1,
+  noDeadline: 0,
+};
 
 const hasAnyMatch = (value: string, expressions: RegExp[]) => expressions.some((expression) => expression.test(value));
 
@@ -161,16 +175,36 @@ const dedupeSignals = (signals: ContextSignal[]) => {
   });
 };
 
+const joinReasonFragments = (fragments: string[]) => {
+  if (fragments.length === 1) {
+    return fragments[0];
+  }
+
+  if (fragments.length === 2) {
+    return `${fragments[0]} and ${fragments[1]}`;
+  }
+
+  return `${fragments.slice(0, -1).join(", ")}, and ${fragments.at(-1)}`;
+};
+
 const computeCompositeScore = (
   triageResult: ClarityCandidate["triageResult"],
   delayCostScore: number,
   reliefScore: number,
   longTermScore: number,
-  reversibilityScore: number
+  reversibilityScore: number,
+  executionEaseScore: number
 ) => {
   const matrixScore = triageResult.urgencyScore * 0.6 + triageResult.importanceScore * 0.85;
   return Number(
-    (matrixScore + delayCostScore * 0.72 + reliefScore * 0.76 + longTermScore * 0.62 + reversibilityScore * 0.28).toFixed(2)
+    (
+      matrixScore +
+      delayCostScore * 0.72 +
+      reliefScore * 0.76 +
+      longTermScore * 0.62 +
+      reversibilityScore * 0.28 +
+      executionEaseScore * 0.38
+    ).toFixed(2)
   );
 };
 
@@ -354,7 +388,10 @@ const getContextAlignmentScore = (text: string, contextSignals: ContextSignal[])
       }
     }
 
-    if (signal.kind === "moneySpeed" && /\b(faster|sooner|cash|receive money faster|get paid faster)\b/i.test(text)) {
+    if (
+      signal.kind === "moneySpeed" &&
+      /\b(faster|sooner|cash|receive money faster|receive money from (?:them|this) faster|get paid faster|pay faster)\b/i.test(text)
+    ) {
       score += 1.05;
     }
 
@@ -406,7 +443,9 @@ const buildTradeoffHint = (sourceText: string, candidateTexts: string[]) => {
 
   if (
     /pay more|higher paying|higher value/i.test(normalized) &&
-    /receive money faster|get paid faster|paid faster|money faster|cash faster/i.test(normalized)
+    /receive money faster|receive money from (?:them|this) faster|get paid faster|paid faster|money faster|cash faster|pay faster/i.test(
+      normalized
+    )
   ) {
     return "Higher pay vs faster payment.";
   }
@@ -568,7 +607,7 @@ const inferImportanceSignal = (text: string, impactAreas: ImpactArea[]): Importa
     impactAreas.includes("housing") ||
     impactAreas.includes("money") ||
     impactAreas.includes("longTermGoals") ||
-    /client|proposal|landlord|doctor|rest/i.test(text)
+    /client|proposal|landlord|doctor|rest|cold email|cold calling/i.test(text)
   ) {
     return "meaningful";
   }
@@ -653,6 +692,76 @@ const getReversibilityScore = (text: string) => {
   return clamp(score);
 };
 
+const getExecutionEaseScore = (text: string, contextSignals: ContextSignal[]) => {
+  let score = 1.5;
+  const lowEnergyContext = contextSignals.some((signal) => signal.kind === "lowEnergy");
+
+  if (/\b(call|email|send|reply|book|rest|follow up|schedule|wait|after lunch|later|tomorrow)\b/i.test(text)) {
+    score += 0.8;
+  }
+
+  if (/\b(cold calling|cold call)\b/i.test(text)) {
+    score -= 0.7;
+  }
+
+  if (/\b(fix|finish|proposal|website|strategy|rebuild|prioriti[sz]e)\b/i.test(text)) {
+    score -= 0.35;
+  }
+
+  if (text.split(/\s+/).length <= 4) {
+    score += 0.25;
+  }
+
+  if (lowEnergyContext && /\b(after lunch|after|later|rest|break|tomorrow)\b/i.test(text)) {
+    score += 0.65;
+  }
+
+  if (lowEnergyContext && /\b(during lunch|during my lunch break|skip lunch|now|right away|immediately)\b/i.test(text)) {
+    score -= 0.75;
+  }
+
+  return clamp(score);
+};
+
+const getUpsideScore = (
+  candidate: Pick<ClarityCandidate, "longTermScore" | "triageAnswers" | "sourceText">,
+  contextSignals: ContextSignal[]
+) => {
+  let score = candidate.longTermScore * 0.7;
+
+  if (candidate.triageAnswers.importanceSignal === "meaningful") {
+    score += 1.1;
+  } else if (candidate.triageAnswers.importanceSignal === "unclear") {
+    score += 0.45;
+  }
+
+  if (
+    candidate.triageAnswers.impactAreas.some((area) =>
+      ["money", "work", "longTermGoals", "reputation", "relationships", "health"].includes(area)
+    )
+  ) {
+    score += 0.55;
+  }
+
+  if (
+    contextSignals.some((signal) => signal.kind === "higherValue") &&
+    /\b(pay more|higher paying|higher value|more value|long term)\b/i.test(candidate.sourceText)
+  ) {
+    score += 0.7;
+  }
+
+  if (
+    contextSignals.some((signal) => signal.kind === "moneySpeed") &&
+    /\b(receive money faster|receive money from (?:them|this) faster|get paid faster|paid faster|money faster|cash faster|pay faster|faster)\b/i.test(
+      candidate.sourceText
+    )
+  ) {
+    score += 0.45;
+  }
+
+  return clamp(score);
+};
+
 const getDecisionGate = (
   candidates: Pick<ClarityCandidate, "delayCostScore" | "reversibilityScore">[],
   decisionShape: DecisionShape
@@ -671,61 +780,270 @@ const getDecisionGate = (
   return "moderate";
 };
 
-const buildCalmingWhy = (
+const buildOptionReasonFactors = (
   candidate: Pick<
     ClarityCandidate,
-    "triageResult" | "reliefScore" | "reversibilityScore" | "delayCostScore" | "sourceText" | "title"
+    | "triageAnswers"
+    | "delayCostScore"
+    | "reversibilityScore"
+    | "executionEaseScore"
+    | "decisionFitScore"
+    | "reliefScore"
+    | "longTermScore"
+    | "sourceText"
+  >,
+  runnerUp: Pick<
+    ClarityCandidate,
+    | "triageAnswers"
+    | "delayCostScore"
+    | "reversibilityScore"
+    | "executionEaseScore"
+    | "decisionFitScore"
+    | "reliefScore"
+    | "longTermScore"
+    | "sourceText"
+  >,
+  contextSignals: ContextSignal[]
+): ReasonFactor[] => {
+  const lowEnergyContext = contextSignals.some((signal) => signal.kind === "lowEnergy");
+  const deadlineContext = contextSignals.some((signal) => signal.kind === "deadlinePressure");
+  const higherValueContext = contextSignals.some((signal) => signal.kind === "higherValue");
+  const moneySpeedContext = contextSignals.some((signal) => signal.kind === "moneySpeed");
+  const factors: ReasonFactor[] = [];
+  const delayDiff = candidate.delayCostScore - runnerUp.delayCostScore;
+  const easeDiff = candidate.executionEaseScore - runnerUp.executionEaseScore;
+  const fitDiff = candidate.decisionFitScore - runnerUp.decisionFitScore;
+  const reliefDiff = candidate.reliefScore - runnerUp.reliefScore;
+  const reversibilityDiff = candidate.reversibilityScore - runnerUp.reversibilityScore;
+  const upsideDiff = getUpsideScore(candidate, contextSignals) - getUpsideScore(runnerUp, contextSignals);
+  const deadlineDiff =
+    DUE_WINDOW_PRIORITY[candidate.triageAnswers.dueWindow] - DUE_WINDOW_PRIORITY[runnerUp.triageAnswers.dueWindow];
+
+  if (deadlineDiff >= 1 || delayDiff >= 0.9 || (deadlineContext && candidate.delayCostScore >= 2.7)) {
+    factors.push({
+      tag: "delay matters",
+      weight: 3.4 + Math.max(delayDiff, deadlineDiff * 0.45),
+      explanation: "delay matters more on this side, so leaving it parked would cost more than waiting on the other option",
+    });
+  }
+
+  if (
+    lowEnergyContext &&
+    /\b(after lunch|after|later|rest|break|tomorrow)\b/i.test(candidate.sourceText) &&
+    candidate.delayCostScore <= runnerUp.delayCostScore + 0.35
+  ) {
+    factors.push({
+      tag: "protects energy",
+      weight: 3.3 + Math.max(fitDiff, easeDiff, 0),
+      explanation: "it fits your current energy better, so you do not have to force the harder version of the choice",
+    });
+  }
+
+  if (fitDiff >= 0.6) {
+    factors.push({
+      tag: "fits the moment",
+      weight: 2.9 + fitDiff,
+      explanation: "it lines up better with the constraint already in the situation, so it should feel easier to trust",
+    });
+  }
+
+  if (easeDiff >= 0.55) {
+    factors.push({
+      tag: "low friction",
+      weight: 2.8 + easeDiff,
+      explanation: "it has less friction to start, which makes follow-through more likely",
+    });
+  }
+
+  if (reversibilityDiff >= 0.55 || (candidate.reversibilityScore >= 2.4 && runnerUp.reversibilityScore <= 1.8)) {
+    factors.push({
+      tag: "reversible",
+      weight: 2.75 + Math.max(reversibilityDiff, 0),
+      explanation: "it is easier to adjust if the first read turns out to be slightly wrong",
+    });
+  }
+
+  if (upsideDiff >= 0.65 || (higherValueContext && /pay more|higher paying|higher value|long term/i.test(candidate.sourceText))) {
+    factors.push({
+      tag: "meaningful upside",
+      weight: 2.7 + Math.max(upsideDiff, 0),
+      explanation: moneySpeedContext
+        ? "it keeps the stronger upside in view, while the other option mostly wins on speed"
+        : "it carries the stronger payoff from here, so the return on choosing it first looks better",
+    });
+  }
+
+  if (
+    moneySpeedContext &&
+    /\b(receive money faster|receive money from (?:them|this) faster|get paid faster|paid faster|money faster|cash faster|pay faster|faster)\b/i.test(
+      candidate.sourceText
+    )
+  ) {
+    factors.push({
+      tag: "faster payoff",
+      weight: 2.65,
+      explanation: "it gets the cash or response cycle moving sooner, which makes the near-term upside more concrete",
+    });
+  }
+
+  if (reliefDiff >= 0.55) {
+    factors.push({
+      tag: "mental relief",
+      weight: 2.55 + reliefDiff,
+      explanation: "it should remove more mental drag once it moves, which makes it easier to stand behind as the first step",
+    });
+  }
+
+  if (!factors.length) {
+    factors.push(
+      easeDiff >= -0.2
+        ? {
+            tag: "easier to execute",
+            weight: 2.2 + Math.max(easeDiff, 0),
+            explanation: "it looks a little easier to execute cleanly, which lowers the chance of getting stuck before you even start",
+          }
+        : {
+            tag: "low downside",
+            weight: 2.1,
+            explanation: "the downside of choosing this first is low enough that you can keep the decision light without creating much risk",
+          }
+    );
+  }
+
+  return factors;
+};
+
+const buildStandaloneReasonFactors = (
+  candidate: Pick<
+    ClarityCandidate,
+    | "triageResult"
+    | "triageAnswers"
+    | "reliefScore"
+    | "reversibilityScore"
+    | "delayCostScore"
+    | "executionEaseScore"
+    | "longTermScore"
+    | "sourceText"
   >,
   options: {
     decisionShape: DecisionShape;
     decisionGate: DecisionGate;
     contextSignals: ContextSignal[];
   }
-) => {
-  const { triageResult, reliefScore, reversibilityScore, delayCostScore, sourceText } = candidate;
+): ReasonFactor[] => {
   const lowEnergyContext = options.contextSignals.some((signal) => signal.kind === "lowEnergy");
-  const deadlineContext = options.contextSignals.some((signal) => signal.kind === "deadlinePressure");
+  const factors: ReasonFactor[] = [];
 
-  if (options.decisionShape === "option_choice") {
-    if (
-      lowEnergyContext &&
-      /\b(after lunch|after|later|rest|break)\b/i.test(sourceText) &&
-      delayCostScore <= 2.8 &&
-      reversibilityScore >= 2.1
-    ) {
-      return "This protects your energy, the downside of waiting looks low, and the choice is easy to adjust later if needed.";
-    }
-
-    if (deadlineContext && /\b(now|today|right away|immediately)\b/i.test(sourceText)) {
-      return "This keeps pace with the time pressure while still staying relatively easy to adjust.";
-    }
-
-    if (reversibilityScore >= 2.2 && delayCostScore <= 2.8) {
-      return "This is easy to adjust later, so the cleaner and less stressful path is usually the better first move.";
-    }
-
-    if (delayCostScore >= 2.7) {
-      return "This looks like the safer option because waiting carries enough downside to matter.";
-    }
+  if (candidate.triageAnswers.hasDeadline || candidate.delayCostScore >= 2.7) {
+    factors.push({
+      tag: "time pressure",
+      weight: 3.2 + candidate.delayCostScore,
+      explanation: "delay would create enough pressure that leaving it untouched is likely to cost you more later",
+    });
   }
 
-  if (triageResult.quadrant === "doNow") {
-    return reliefScore >= 2.5
-      ? "This carries real pressure and should noticeably lighten the mental load once it moves."
-      : "This has the clearest combination of urgency and importance right now.";
+  if (candidate.longTermScore >= 2.3 || candidate.triageAnswers.importanceSignal === "meaningful") {
+    factors.push({
+      tag: "meaningful upside",
+      weight: 2.8 + candidate.longTermScore * 0.2,
+      explanation: "it affects something that matters beyond the moment, so there is a real payoff to handling it well",
+    });
   }
 
-  if (triageResult.quadrant === "schedule") {
-    return options.decisionGate === "careful"
-      ? "This matters, but it is better handled deliberately than under rushed pressure."
-      : "This matters, but it does not need to crowd the next few minutes.";
+  if (candidate.executionEaseScore >= 2.4) {
+    factors.push({
+      tag: lowEnergyContext ? "fits your energy" : "easier to execute",
+      weight: 2.6 + candidate.executionEaseScore * 0.15,
+      explanation: lowEnergyContext
+        ? "it fits your current capacity well enough that starting should feel lighter than it looks"
+        : "it is clear enough to move without a lot of setup or hesitation",
+    });
   }
 
-  if (triageResult.quadrant === "delegate") {
-    return "This feels loud, but it does not need your full attention first.";
+  if (candidate.reversibilityScore >= 2.4) {
+    factors.push({
+      tag: "reversible",
+      weight: 2.45 + candidate.reversibilityScore * 0.12,
+      explanation: "you can start with a small step and still adjust later if new information shows up",
+    });
   }
 
-  return "This can stay lighter for now without creating much downside.";
+  if (candidate.reliefScore >= 2.4) {
+    factors.push({
+      tag: "mental relief",
+      weight: 2.35 + candidate.reliefScore * 0.18,
+      explanation: "moving it should take noticeable mental drag out of the background",
+    });
+  }
+
+  if (!factors.length) {
+    factors.push({
+      tag: "low downside",
+      weight: 2,
+      explanation: "it stays relatively safe to keep this light while you focus on what matters more",
+    });
+  }
+
+  return factors;
+};
+
+const pickReasonFactors = (factors: ReasonFactor[]) =>
+  [...factors]
+    .sort((left, right) => right.weight - left.weight)
+    .filter(
+      (factor, index, sortedFactors) =>
+        sortedFactors.findIndex((candidateFactor) => candidateFactor.tag === factor.tag) === index
+    )
+    .slice(0, 3);
+
+const buildCandidateReasoning = (
+  candidate: Pick<
+    ClarityCandidate,
+    | "triageResult"
+    | "triageAnswers"
+    | "reliefScore"
+    | "reversibilityScore"
+    | "delayCostScore"
+    | "executionEaseScore"
+    | "decisionFitScore"
+    | "longTermScore"
+    | "sourceText"
+  >,
+  runnerUp: Pick<
+    ClarityCandidate,
+    | "triageResult"
+    | "triageAnswers"
+    | "reliefScore"
+    | "reversibilityScore"
+    | "delayCostScore"
+    | "executionEaseScore"
+    | "decisionFitScore"
+    | "longTermScore"
+    | "sourceText"
+  > | null,
+  options: {
+    decisionShape: DecisionShape;
+    decisionGate: DecisionGate;
+    contextSignals: ContextSignal[];
+  }
+) => {
+  const selectedFactors = pickReasonFactors(
+    options.decisionShape === "option_choice" && runnerUp
+      ? buildOptionReasonFactors(candidate, runnerUp, options.contextSignals)
+      : buildStandaloneReasonFactors(candidate, options)
+  );
+
+  const explanation =
+    options.decisionShape === "option_choice" && runnerUp
+      ? `This ${candidate.triageResult.quadrant === "schedule" ? "edges ahead" : "wins"} because ${joinReasonFragments(
+          selectedFactors.map((factor) => factor.explanation)
+        )}.`
+      : `This looks strongest because ${joinReasonFragments(selectedFactors.map((factor) => factor.explanation))}.`;
+
+  return {
+    calmingWhy: explanation,
+    reasonTags: selectedFactors.map((factor) => factor.tag),
+  };
 };
 
 const buildCandidate = (sourceText: string, index: number, contextSignals: ContextSignal[] = []): ClarityCandidate => {
@@ -752,13 +1070,15 @@ const buildCandidate = (sourceText: string, index: number, contextSignals: Conte
   const reliefScore = getMentalReliefScore(normalizedText);
   const longTermScore = getLongTermScore(normalizedText, impactAreas);
   const reversibilityScore = getReversibilityScore(normalizedText);
+  const executionEaseScore = getExecutionEaseScore(normalizedText, contextSignals);
   const decisionFitScore = getContextAlignmentScore(normalizedText, contextSignals);
   const compositeScore = computeCompositeScore(
     triageResult,
     delayCostScore,
     reliefScore,
     longTermScore,
-    reversibilityScore
+    reversibilityScore,
+    executionEaseScore
   );
 
   const title = buildCandidateTitle(sourceText);
@@ -774,9 +1094,11 @@ const buildCandidate = (sourceText: string, index: number, contextSignals: Conte
     longTermScore,
     reliefScore,
     reversibilityScore,
+    executionEaseScore,
     decisionFitScore,
     compositeScore: Number((compositeScore + decisionFitScore).toFixed(2)),
     calmingWhy: "",
+    reasonTags: [],
   };
 
   return candidate;
@@ -804,6 +1126,7 @@ const refreshCandidate = (
   const reliefScore = patch.reliefScore ?? candidate.reliefScore;
   const longTermScore = patch.longTermScore ?? candidate.longTermScore;
   const reversibilityScore = patch.reversibilityScore ?? candidate.reversibilityScore;
+  const executionEaseScore = candidate.executionEaseScore;
   const decisionFitScore = patch.decisionFitScore ?? candidate.decisionFitScore;
 
   const nextCandidate: ClarityCandidate = {
@@ -814,10 +1137,18 @@ const refreshCandidate = (
     reliefScore,
     longTermScore,
     reversibilityScore,
+    executionEaseScore,
     decisionFitScore,
     compositeScore: Number(
       (
-        computeCompositeScore(triageResult, delayCostScore, reliefScore, longTermScore, reversibilityScore) +
+        computeCompositeScore(
+          triageResult,
+          delayCostScore,
+          reliefScore,
+          longTermScore,
+          reversibilityScore,
+          executionEaseScore
+        ) +
         decisionFitScore
       ).toFixed(2)
     ),
@@ -945,14 +1276,23 @@ const finalizeAnalysis = (
   const contextSignals = options?.contextSignals ?? [];
   const decisionShape = getDecisionShape(mode, candidateRelationship, decisionGroups, activeDecisionGroupId);
   const decisionGate = getDecisionGate(sortedCandidates, decisionShape);
-  const enrichedCandidates = sortedCandidates.map((candidate) => ({
-    ...candidate,
-    calmingWhy: buildCalmingWhy(candidate, {
+  const enrichedCandidates = sortedCandidates.map((candidate, index) => {
+    const runnerUp =
+      decisionShape === "option_choice"
+        ? sortedCandidates[index === 0 ? 1 : 0] ?? null
+        : null;
+    const reasoning = buildCandidateReasoning(candidate, runnerUp, {
       decisionShape,
       decisionGate,
       contextSignals,
-    }),
-  }));
+    });
+
+    return {
+      ...candidate,
+      calmingWhy: reasoning.calmingWhy,
+      reasonTags: reasoning.reasonTags,
+    };
+  });
   const topCandidates = enrichedCandidates.slice(0, 2);
   const scoreGap =
     topCandidates.length === 2 ? topCandidates[0].compositeScore - topCandidates[1].compositeScore : 9;

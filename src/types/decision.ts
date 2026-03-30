@@ -76,9 +76,11 @@ export interface ClarityCandidate {
   longTermScore: number;
   reliefScore: number;
   reversibilityScore: number;
+  executionEaseScore: number;
   decisionFitScore: number;
   compositeScore: number;
   calmingWhy: string;
+  reasonTags: string[];
 }
 
 export interface ClarityQuestion {

@@ -688,9 +688,30 @@ const mergeMissingActionTexts = (primaryActionTexts: string[], fallbackActionTex
   return merged;
 };
 
+const countCompareScaffolds = (value: string) =>
+  (value.match(/\b(?:do i|should i|whether to|decide whether to|deciding whether to|vs\.?|versus)\b/gi) ?? [])
+    .length;
+
+const hasExplicitSeparateDecisionSignal = (rawInput: string) => {
+  const segments = splitDecisionSegments(rawInput);
+  const explicitDecisionSegments = segments.filter((segment) => looksLikeDecisionLead(segment)).length;
+
+  if (explicitDecisionSegments >= 2) {
+    return true;
+  }
+
+  if (/\b(?:also|plus)\s+(?:i(?:['’]m| am)\s+)?(?:still\s+)?(?:trying to\s+)?decid(?:e|ing)\b/i.test(rawInput)) {
+    return true;
+  }
+
+  return countCompareScaffolds(rawInput) >= 2;
+};
+
 const shouldKeepStructuredActionsCombined = (
+  rawInput: string,
   cleanup: AiCleanupResult,
   decisionGroups: ClarityDecisionGroup[],
+  extractedFallbackActions: string[],
   selectedDecisionGroupId?: string
 ) => {
   if (selectedDecisionGroupId) {
@@ -703,6 +724,10 @@ const shouldKeepStructuredActionsCombined = (
 
   if (decisionGroups.length <= 1) {
     return false;
+  }
+
+  if (!hasExplicitSeparateDecisionSignal(rawInput) && extractedFallbackActions.length >= 3) {
+    return true;
   }
 
   const allGroupsAreSingleAction = decisionGroups.every((group) => group.candidateTexts.length <= 1);
@@ -1723,8 +1748,10 @@ export const analyzeStructuredClarityInput = (
     .filter((group): group is ClarityDecisionGroup => Boolean(group));
 
   const keepActionsCombined = shouldKeepStructuredActionsCombined(
+    normalizedInput,
     cleanup,
     decisionGroups,
+    extractedFallbackActions,
     selectedDecisionGroupId
   );
   const selectedDecisionGroup = selectedDecisionGroupId

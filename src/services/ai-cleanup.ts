@@ -22,13 +22,17 @@ const AI_META_PATTERNS = [
 ];
 const AI_CONTEXT_ONLY_PATTERNS = [
   /^\s*(?:but\s+)?i(?:['’]m| am)\s+(?:very\s+)?(?:hungry|tired|exhausted|drained|low energy|burned out|burnt out)\b/i,
+  /^(?:but\s+)?i feel overwhelmed\b/i,
+  /^(?:but\s+)?i(?:\s+do\s+not|\s+don't)?\s+want clarity\b/i,
+  /^(?:but\s+)?i(?:\s+do\s+not|\s+don't)?\s+want to make (?:the )?(?:wrong move|a mistake)\b/i,
+  /\bout of panic\b/i,
   /^\s*(?:but\s+)?(?:money|cash flow)\b.+\b(?:would help|helps)\b/i,
   /^\s*i urgently need cash flow soon\b/i,
   /^\s*(?:but\s+)?it won[’']?t directly bring in money today\b/i,
   /^\s*(?:so\s+)?i need the clearest next move\b/i,
 ];
 const AI_ACTION_VERB_PATTERNS = [
-  /\b(?:call|email|send|fix|finish|rest|book|schedule|wait|reply|follow up|cold email|cold call|cold calling|clean up|cleanup|prioriti[sz]e|focus on|keep|switch|choose|pay|invoice|ship|submit|review|reach out|outreach|delegate|automate|reduce|ignore|quit|resign|sign|buy|sell|move|start|stop|eat|prepare|ask|contact)\b/i,
+  /\b(?:call|email|send|fix|finish|rest|book|schedule|wait|reply|follow up|cold email|cold call|cold calling|clean up|cleanup|prioriti[sz]e|focus on|keep|switch|choose|pay|invoice|ship|submit|review|reach out|outreach|delegate|automate|reduce|ignore|quit|resign|sign|buy|sell|start|stop|eat|prepare|ask|contact)\b/i,
 ];
 const AI_OPTION_NOUN_PATTERNS = [
   /\b(?:proposal|invoice|contract|email|website|rent|landlord|meeting|clients?|outreach|cold email|cold calling|call|rest|break)\b/i,

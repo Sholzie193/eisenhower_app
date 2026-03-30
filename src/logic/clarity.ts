@@ -108,6 +108,10 @@ const META_LANGUAGE_PATTERNS = [
 ];
 const CONTEXT_ONLY_PATTERNS = [
   /^(?:but\s+)?i(?:['’]m| am)\s+(?:mentally\s+)?(?:tired|hungry|exhausted|drained|fatigued|low energy|burned out|burnt out)\b/i,
+  /^(?:but\s+)?i feel overwhelmed\b/i,
+  /^(?:but\s+)?i(?:\s+do\s+not|\s+don't)?\s+want clarity\b/i,
+  /^(?:but\s+)?i(?:\s+do\s+not|\s+don't)?\s+want to make (?:the )?(?:wrong move|a mistake)\b/i,
+  /\bout of panic\b/i,
   /^\s*i urgently need cash flow soon\b/i,
   /\bcash flow soon\b/i,
   /^\s*(?:but\s+)?money\b.+\b(?:would help|helps)\b/i,
@@ -119,7 +123,7 @@ const CONTEXT_ONLY_PATTERNS = [
   /^\s*(?:because|since|as)\b/i,
 ];
 const ACTION_VERB_PATTERNS = [
-  /\b(?:call|email|send|fix|finish|rest|book|schedule|wait|reply|follow up|cold email|cold call|cold calling|clean up|cleanup|prioriti[sz]e|focus on|keep|switch|choose|pay|invoice|ship|submit|review|reach out|outreach|delegate|automate|reduce|ignore|quit|resign|sign|buy|sell|move|start|stop)\b/i,
+  /\b(?:call|email|send|fix|finish|rest|book|schedule|wait|reply|follow up|cold email|cold call|cold calling|clean up|cleanup|prioriti[sz]e|focus on|keep|switch|choose|pay|invoice|ship|submit|review|reach out|outreach|delegate|automate|reduce|ignore|quit|resign|sign|buy|sell|start|stop|contact|prepare|ask)\b/i,
 ];
 const OPTION_NOUN_PATTERNS = [
   /\bclients?\b/i,
@@ -665,6 +669,23 @@ const extractActionClauses = (rawInput: string) => {
     );
 
   return filterEligibleCandidates(actionClauses, rawInput, "tasks");
+};
+
+const mergeMissingActionTexts = (primaryActionTexts: string[], fallbackActionTexts: string[]) => {
+  const seen = new Set(primaryActionTexts.map((actionText) => buildCandidateTitle(actionText).toLowerCase()));
+  const merged = [...primaryActionTexts];
+
+  fallbackActionTexts.forEach((actionText) => {
+    const key = buildCandidateTitle(actionText).toLowerCase();
+    if (!key || seen.has(key)) {
+      return;
+    }
+
+    seen.add(key);
+    merged.push(actionText);
+  });
+
+  return merged;
 };
 
 const isShortNounLikeOption = (value: string) =>
@@ -1631,6 +1652,7 @@ export const analyzeStructuredClarityInput = (
   selectedDecisionGroupId?: string
 ): ClarityAnalysis => {
   const normalizedInput = rawInput.replace(/\s+/g, " ").trim();
+  const extractedFallbackActions = extractActionClauses(normalizedInput);
   const fallbackGroupId = cleanup.decision_groups[0]?.id ?? "group-1";
   const actions = cleanup.actions
     .map((action, index) => ({
@@ -1661,7 +1683,13 @@ export const analyzeStructuredClarityInput = (
         sourceText: [sanitizedLabel, ...groupActions.map((action) => action.details).filter(Boolean), ...cleanup.tradeoffs, ...cleanup.context]
           .join(". ")
           .trim(),
-        candidateTexts: groupActions.map((action) => action.title),
+        candidateTexts:
+          cleanup.decision_type === "foggy_dump" || cleanup.decision_groups.length <= 1
+            ? mergeMissingActionTexts(
+                groupActions.map((action) => action.title),
+                group.id === fallbackGroupId ? extractedFallbackActions : []
+              )
+            : groupActions.map((action) => action.title),
         candidateRelationship:
           groupActions.length > 1 && cleanup.decision_type !== "foggy_dump" ? ("alternatives" as const) : ("tasks" as const),
         ...(cleanup.tradeoffs[0] ? { tradeoffHint: cleanup.tradeoffs[0] } : {}),
@@ -1675,11 +1703,11 @@ export const analyzeStructuredClarityInput = (
   const autoPrimaryDecisionGroup =
     !selectedDecisionGroup && decisionGroups.length ? pickPrimaryDecisionGroup(decisionGroups) : undefined;
   const analysisDecisionGroup = selectedDecisionGroup ?? autoPrimaryDecisionGroup;
-  const activeActions = analysisDecisionGroup
-    ? actions.filter((action) => action.decision_group === analysisDecisionGroup.id)
-    : actions;
+  const activeActionTitles = analysisDecisionGroup
+    ? analysisDecisionGroup.candidateTexts
+    : mergeMissingActionTexts(actions.map((action) => action.title), extractedFallbackActions);
   const contextSignals = extractContextSignals([normalizedInput, ...cleanup.context, ...cleanup.tradeoffs].join(". "));
-  const builtCandidates = activeActions.map((action, index) => buildCandidate(action.title, index, contextSignals));
+  const builtCandidates = activeActionTitles.map((actionTitle, index) => buildCandidate(actionTitle, index, contextSignals));
   if (!builtCandidates.length) {
     return analyzeClarityInput(normalizedInput, selectedDecisionGroupId);
   }
@@ -1700,7 +1728,7 @@ export const analyzeStructuredClarityInput = (
       decisionGroups,
       activeDecisionGroupId: analysisDecisionGroup?.id,
       contextSignals,
-      decisionLabelTexts: activeActions.map((action) => action.title),
+      decisionLabelTexts: activeActionTitles,
     }
   );
 };

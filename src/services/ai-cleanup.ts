@@ -99,6 +99,10 @@ export const AI_CLEANUP_PROMPT = [
 ].join(" ");
 
 const toSentenceCase = (value: string) => value.charAt(0).toUpperCase() + value.slice(1);
+const stripOrdinalListPrefix = (value: string) =>
+  value
+    .replace(/^\s*(?:\((?:[1-5])\)|[1-5][.:]|(?:one|two|three|four|five|first|second|third|fourth|fifth):)\s*/i, "")
+    .trim();
 
 const stripBinaryLead = (value: string) =>
   value
@@ -212,7 +216,11 @@ export const sanitizeAiActionTitle = (value: string, rawInput = "") => {
     stripReasonTail(
       stripAiContextTail(
         resolveImplicitActionObject(
-          stripConditionalLead(stripBinaryLead(stripAiMetaLead(value.replace(/[.?!]+$/g, "").replace(/\s+/g, " ").trim()))),
+          stripConditionalLead(
+            stripBinaryLead(
+              stripOrdinalListPrefix(stripAiMetaLead(value.replace(/[.?!]+$/g, "").replace(/\s+/g, " ").trim()))
+            )
+          ),
           rawInput
         )
       )
@@ -270,7 +278,11 @@ export const sanitizeAiDecisionGroupLabel = (
     stripReasonTail(
       stripAiContextTail(
         resolveImplicitActionObject(
-          stripConditionalLead(stripBinaryLead(stripAiMetaLead(value.replace(/[.?!]+$/g, "").replace(/\s+/g, " ").trim()))),
+          stripConditionalLead(
+            stripBinaryLead(
+              stripOrdinalListPrefix(stripAiMetaLead(value.replace(/[.?!]+$/g, "").replace(/\s+/g, " ").trim()))
+            )
+          ),
           rawInput
         )
       )

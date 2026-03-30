@@ -19,6 +19,7 @@ export default function HomeScreen() {
   const { hydrated, items, runClarity, startDraft } = useAppData();
   const { theme } = useAppTheme();
   const [input, setInput] = useState("");
+  const [isRunningClarity, setIsRunningClarity] = useState(false);
 
   const activeItems = useMemo(
     () => sortItemsByPriority(items.filter((item) => !item.completed)),
@@ -91,11 +92,18 @@ export default function HomeScreen() {
         </View>
 
         <NeuButton
-          label="Find the clearest move"
-          disabled={!input.trim()}
+          label={isRunningClarity ? "Cleaning up your input..." : "Find the clearest move"}
+          disabled={!input.trim() || isRunningClarity}
           onPress={() => {
-            runClarity(input);
-            router.push("/result");
+            void (async () => {
+              setIsRunningClarity(true);
+              try {
+                await runClarity(input);
+                router.push("/result");
+              } finally {
+                setIsRunningClarity(false);
+              }
+            })();
           }}
         />
       </NeuCard>

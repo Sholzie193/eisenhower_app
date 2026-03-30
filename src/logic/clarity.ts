@@ -1,5 +1,6 @@
 import { IMPACT_AREA_LABELS } from "../constants/quadrants";
 import { evaluateTriage } from "./triage";
+import type { AiCleanupResult } from "../types/ai-cleanup";
 import type {
   ClarityAnalysis,
   ClarityCandidate,
@@ -202,6 +203,7 @@ const DUE_WINDOW_PRIORITY: Record<DueWindow, number> = {
 const hasAnyMatch = (value: string, expressions: RegExp[]) => expressions.some((expression) => expression.test(value));
 
 const isParagraphLikeInput = (value: string) => value.split(/\s+/).length > 18 || /[.?!]/.test(value);
+export const shouldUseAiCleanup = (value: string) => isParagraphLikeInput(value.replace(/\s+/g, " ").trim());
 
 const dedupe = (values: string[]) => {
   const seen = new Set<string>();
@@ -1558,6 +1560,99 @@ const finalizeAnalysis = (
     activeDecisionGroupId,
     narrowedFromCount,
   };
+};
+
+const getModeFromAiDecisionType = (decisionType: AiCleanupResult["decision_type"]): ClarityMode => {
+  if (decisionType === "single_task") {
+    return "single";
+  }
+
+  if (decisionType === "foggy_dump") {
+    return "fog";
+  }
+
+  return "compare";
+};
+
+const getRelationshipFromAiDecisionType = (
+  decisionType: AiCleanupResult["decision_type"]
+): ClarityCandidateRelationship => {
+  if (decisionType === "option_choice" || decisionType === "multiple_decisions") {
+    return "alternatives";
+  }
+
+  return "tasks";
+};
+
+export const analyzeStructuredClarityInput = (
+  rawInput: string,
+  cleanup: AiCleanupResult,
+  selectedDecisionGroupId?: string
+): ClarityAnalysis => {
+  const normalizedInput = rawInput.replace(/\s+/g, " ").trim();
+  const fallbackGroupId = cleanup.decision_groups[0]?.id ?? "group-1";
+  const actions = cleanup.actions
+    .map((action, index) => ({
+      ...action,
+      id: `candidate-${index + 1}`,
+      decision_group: action.decision_group || fallbackGroupId,
+      details: action.details?.trim() ?? "",
+      title: action.title.trim(),
+    }))
+    .filter((action) => action.title);
+  const decisionGroups = cleanup.decision_groups
+    .map((group) => {
+      const groupActions = actions.filter((action) => action.decision_group === group.id);
+
+      if (!groupActions.length) {
+        return null;
+      }
+
+      return {
+        id: group.id,
+        label: group.label,
+        sourceText: [group.label, ...cleanup.tradeoffs, ...cleanup.context].join(". ").trim(),
+        candidateTexts: groupActions.map((action) =>
+          [action.title, action.details].filter(Boolean).join(". ").trim()
+        ),
+        candidateRelationship:
+          groupActions.length > 1 && cleanup.decision_type !== "foggy_dump" ? ("alternatives" as const) : ("tasks" as const),
+        ...(cleanup.tradeoffs[0] ? { tradeoffHint: cleanup.tradeoffs[0] } : {}),
+      };
+    })
+    .filter((group): group is ClarityDecisionGroup => Boolean(group));
+
+  const selectedDecisionGroup = selectedDecisionGroupId
+    ? decisionGroups.find((group) => group.id === selectedDecisionGroupId)
+    : undefined;
+  const autoPrimaryDecisionGroup =
+    !selectedDecisionGroup && decisionGroups.length ? pickPrimaryDecisionGroup(decisionGroups) : undefined;
+  const analysisDecisionGroup = selectedDecisionGroup ?? autoPrimaryDecisionGroup;
+  const activeActions = analysisDecisionGroup
+    ? actions.filter((action) => action.decision_group === analysisDecisionGroup.id)
+    : actions;
+  const contextSignals = extractContextSignals([normalizedInput, ...cleanup.context, ...cleanup.tradeoffs].join(". "));
+  const builtCandidates = activeActions.map((action, index) =>
+    buildCandidate([action.title, action.details].filter(Boolean).join(". "), index, contextSignals)
+  );
+  const candidateRelationship = analysisDecisionGroup
+    ? analysisDecisionGroup.candidateRelationship
+    : getRelationshipFromAiDecisionType(cleanup.decision_type);
+
+  return finalizeAnalysis(
+    normalizedInput,
+    getModeFromAiDecisionType(cleanup.decision_type),
+    builtCandidates,
+    undefined,
+    undefined,
+    {
+      candidateRelationship,
+      decisionGroups,
+      activeDecisionGroupId: analysisDecisionGroup?.id,
+      contextSignals,
+      decisionLabelTexts: activeActions.map((action) => action.title),
+    }
+  );
 };
 
 export const analyzeClarityInput = (rawInput: string, selectedDecisionGroupId?: string): ClarityAnalysis => {

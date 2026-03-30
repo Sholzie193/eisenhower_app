@@ -3,9 +3,12 @@ import { sampleItems } from "../constants/sampleData";
 import { QUADRANT_META } from "../constants/quadrants";
 import {
   analyzeClarityInput,
+  analyzeStructuredClarityInput,
   answerClarityQuestion as answerClarityQuestionLogic,
   focusClarityDecisionGroup as focusClarityDecisionGroupLogic,
+  shouldUseAiCleanup,
 } from "../logic/clarity";
+import { cleanupClarityInputWithAi } from "../services/ai-cleanup";
 import { evaluateTriage, getQuadrantGuidance } from "../logic/triage";
 import { DEFAULT_TRIAGE_ANSWERS } from "../logic/triageConfig";
 import { storage } from "../storage/storage";
@@ -30,7 +33,7 @@ interface AppContextValue {
   startRetriage: (itemId: string) => void;
   updateDraft: (patch: Partial<DraftDecision>) => void;
   clearDraft: () => void;
-  runClarity: (rawInput: string) => ClarityAnalysis;
+  runClarity: (rawInput: string) => Promise<ClarityAnalysis>;
   focusClarityDecisionGroup: (decisionGroupId: string) => void;
   answerClarityQuestion: (candidateId: string) => void;
   clearClarity: () => void;
@@ -181,9 +184,14 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
     return newItem.id;
   };
 
-  const runClarity = (rawInput: string) => {
+  const runClarity = async (rawInput: string) => {
     setDraft(null);
-    const nextSession = analyzeClarityInput(rawInput);
+    const normalizedInput = rawInput.trim();
+    const aiCleanup =
+      shouldUseAiCleanup(normalizedInput) ? await cleanupClarityInputWithAi(normalizedInput) : null;
+    const nextSession = aiCleanup
+      ? analyzeStructuredClarityInput(normalizedInput, aiCleanup)
+      : analyzeClarityInput(normalizedInput);
     setClaritySession(nextSession);
     return nextSession;
   };

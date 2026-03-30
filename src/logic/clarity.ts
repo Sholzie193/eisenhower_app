@@ -290,12 +290,18 @@ const cleanCandidate = (value: string) => {
     withoutBullets
   );
 
-  return withoutPrefixes.replace(/[.?!]+$/g, "").replace(/\s+/g, " ").trim();
+  return withoutPrefixes
+    .replace(/\b(?:or|and|but)\s*$/i, "")
+    .replace(/[.?!]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
 };
 
 const toSentenceCase = (value: string) => value.charAt(0).toUpperCase() + value.slice(1);
 
 const removeWhyClause = (value: string) => value.replace(/\s+(?:because|since|so that|so|as)\s+.+$/i, "").trim();
+const removeOptionContextTail = (value: string) =>
+  value.replace(/\s*,?\s*(?:even though|although|though|despite)\s+.+$/i, "").replace(/\s+\bbut\b\s+.+$/i, "").trim();
 
 const naturalizeOptionTitle = (value: string) => {
   let nextValue = value
@@ -321,7 +327,7 @@ const naturalizeOptionTitle = (value: string) => {
 
 const buildCandidateTitle = (value: string) => {
   const cleaned = cleanCandidate(value);
-  const withoutContext = removeWhyClause(cleaned);
+  const withoutContext = removeOptionContextTail(removeWhyClause(cleaned));
   const withoutSubjectLead = withoutContext
     .replace(/^(?:i\s+(?:could|can|should|might|will|would)\s+|i\s+want\s+to\s+|i\s+need\s+to\s+)/i, "")
     .trim();
@@ -399,10 +405,11 @@ const extractBinaryOptionTexts = (rawInput: string) => {
   const normalized = rawInput
     .replace(/[•·]/g, "\n")
     .replace(/\s+(?:vs\.?|versus)\s+/gi, " or ")
+    .replace(/\s*,\s*or\s+/gi, " or ")
     .replace(/\s+/g, " ")
     .trim();
 
-  if (/[,\n;]/.test(normalized)) {
+  if (/[\n;]/.test(normalized) || /\b(?:also|plus)\b/i.test(normalized)) {
     return null;
   }
 

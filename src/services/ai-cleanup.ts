@@ -2,6 +2,8 @@ import Constants from "expo-constants";
 import type { AiCleanupResult } from "../types/ai-cleanup";
 
 const OPENAI_MODEL = "gpt-5-mini";
+const SIMPLE_BINARY_LEAD =
+  /^(?:do i|should i|whether to|decide whether to|deciding whether to|i(?:['’]m| am)\s+(?:still\s+)?deciding whether to|need to\s+(?:still\s+)?decide whether to)\b/i;
 
 export const AI_CLEANUP_JSON_SCHEMA = {
   type: "object",
@@ -57,11 +59,94 @@ export const AI_CLEANUP_PROMPT = [
   "Extract real actionable options or tasks.",
   "Keep context separate from actions.",
   "Keep tradeoffs short and concrete.",
+  "For a simple binary X or Y choice, return exactly one decision_group with exactly two actions.",
+  "Do not turn the second side of a binary choice into a separate decision.",
+  "Strip conjunction leftovers like trailing 'or' from action titles.",
+  "Keep context like hunger, tiredness, or stress out of action titles when possible.",
   "Never turn setup, framing, or meta-language into actions.",
   "Never coach, explain, or give advice.",
   "Return no markdown, no code fences, and no text outside the JSON schema.",
   "Action titles must be short, clean, and human-readable.",
 ].join(" ");
+
+const toSentenceCase = (value: string) => value.charAt(0).toUpperCase() + value.slice(1);
+
+const stripBinaryLead = (value: string) =>
+  value
+    .replace(
+      /^(?:do i|should i|whether to|decide whether to|deciding whether to|i(?:['’]m| am)\s+(?:still\s+)?deciding whether to|need to\s+(?:still\s+)?decide whether to)\s+/i,
+      ""
+    )
+    .trim();
+
+const stripBinaryContextTail = (value: string) =>
+  value
+    .replace(/\s*,?\s*(?:even though|although|though|despite)\s+.+$/i, "")
+    .replace(/\s+\bbut\b\s+.+$/i, "")
+    .replace(/\s+\b(?:because|since|as)\b\s+.+$/i, "")
+    .replace(/\b(?:or|and|but)\s*$/i, "")
+    .replace(/[.?!]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const normalizeBinaryOptionTitle = (value: string) => {
+  const normalized = stripBinaryContextTail(stripBinaryLead(value));
+  return normalized ? toSentenceCase(normalized) : "";
+};
+
+const extractSimpleBinaryCleanup = (rawInput: string): AiCleanupResult | null => {
+  const normalized = rawInput.replace(/\s+/g, " ").trim();
+  const normalizedWithoutTail = normalized.replace(/[.?!]+$/g, "").trim();
+
+  if (!SIMPLE_BINARY_LEAD.test(normalizedWithoutTail)) {
+    return null;
+  }
+
+  if (/\b(?:also|plus)\b/i.test(normalizedWithoutTail)) {
+    return null;
+  }
+
+  if ((normalizedWithoutTail.match(/\bor\b/gi) ?? []).length !== 1) {
+    return null;
+  }
+
+  const parts = normalizedWithoutTail.split(/\s*,?\s+or\s+/i);
+  if (parts.length !== 2) {
+    return null;
+  }
+
+  const left = normalizeBinaryOptionTitle(parts[0]);
+  const right = normalizeBinaryOptionTitle(parts[1]);
+
+  if (!left || !right) {
+    return null;
+  }
+
+  const context: string[] = [];
+  const tradeoffs: string[] = [];
+
+  if (/\b(?:hungry|very hungry|tired|exhausted|drained|low energy)\b/i.test(normalizedWithoutTail)) {
+    context.push("Very hungry or low energy");
+  }
+
+  if (/\bduring (?:my\s+)?lunch(?: break)?\b/i.test(normalizedWithoutTail) && /\bafter lunch\b/i.test(normalizedWithoutTail)) {
+    tradeoffs.push("Sooner vs better energy");
+  }
+
+  const joiner = /\b(?:clients?|email|cold email|cold calling|calling|outreach)\b/i.test(`${left} ${right}`) ? "vs" : "or";
+  const label = `${left} ${joiner} ${right}`;
+
+  return {
+    decision_type: "option_choice",
+    actions: [
+      { title: left, details: "", decision_group: "group-1" },
+      { title: right, details: "", decision_group: "group-1" },
+    ],
+    context,
+    tradeoffs,
+    decision_groups: [{ id: "group-1", label }],
+  };
+};
 
 const trimStringArray = (values: unknown, maxItems: number) => {
   if (!Array.isArray(values)) {
@@ -161,9 +246,10 @@ export const canUseAiCleanup = () => Boolean(getOpenAiApiKey());
 
 export const cleanupClarityInputWithAi = async (rawInput: string): Promise<AiCleanupResult | null> => {
   const apiKey = getOpenAiApiKey();
+  const binaryCleanup = extractSimpleBinaryCleanup(rawInput);
 
   if (!apiKey || !rawInput.trim()) {
-    return null;
+    return binaryCleanup;
   }
 
   try {
@@ -209,8 +295,8 @@ export const cleanupClarityInputWithAi = async (rawInput: string): Promise<AiCle
       return null;
     }
 
-    return normalizeAiCleanupResult(JSON.parse(content));
+    return binaryCleanup ?? normalizeAiCleanupResult(JSON.parse(content));
   } catch {
-    return null;
+    return binaryCleanup;
   }
 };

@@ -726,6 +726,7 @@ const shouldKeepStructuredActionsCombined = (
   rawInput: string,
   cleanup: AiCleanupResult,
   decisionGroups: ClarityDecisionGroup[],
+  cleanedActionTitles: string[],
   extractedFallbackActions: string[],
   selectedDecisionGroupId?: string
 ) => {
@@ -737,9 +738,7 @@ const shouldKeepStructuredActionsCombined = (
     return true;
   }
 
-  const totalStructuredActions = dedupe(decisionGroups.flatMap((group) => group.candidateTexts)).length;
-
-  if (Math.max(totalStructuredActions, extractedFallbackActions.length) >= 3) {
+  if (Math.max(cleanedActionTitles.length, extractedFallbackActions.length) >= 3) {
     return !hasClearlySeparateCompareDecisions(rawInput, decisionGroups);
   }
 
@@ -1734,6 +1733,10 @@ export const analyzeStructuredClarityInput = (
       title: action.title.trim() || sanitizeAiActionTitle(action.title, normalizedInput),
     }))
     .filter((action) => action.title);
+  const cleanedActionTitles = mergeMissingActionTexts(
+    actions.map((action) => action.title),
+    extractedFallbackActions
+  );
   const decisionGroups = cleanup.decision_groups
     .map((group) => {
       const groupActions = actions.filter((action) => action.decision_group === group.id);
@@ -1772,6 +1775,7 @@ export const analyzeStructuredClarityInput = (
     normalizedInput,
     cleanup,
     decisionGroups,
+    cleanedActionTitles,
     extractedFallbackActions,
     selectedDecisionGroupId
   );
@@ -1785,7 +1789,7 @@ export const analyzeStructuredClarityInput = (
   const analysisDecisionGroup = selectedDecisionGroup ?? autoPrimaryDecisionGroup;
   const activeActionTitles = analysisDecisionGroup
     ? analysisDecisionGroup.candidateTexts
-    : mergeMissingActionTexts(actions.map((action) => action.title), extractedFallbackActions);
+    : cleanedActionTitles;
   const contextSignals = extractContextSignals([normalizedInput, ...cleanup.context, ...cleanup.tradeoffs].join(". "));
   const builtCandidates = activeActionTitles.map((actionTitle, index) => buildCandidate(actionTitle, index, contextSignals));
   if (!builtCandidates.length) {

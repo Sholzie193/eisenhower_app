@@ -287,6 +287,27 @@ const salvageAiActionTitle = (title: string, details = "", rawInput = "") => {
   return hasUsableActionShape(lightlyCleaned) ? toSentenceCase(lightlyCleaned) : "";
 };
 
+const preserveLightlyCleanedActionTitle = (title: string, details = "", rawInput = "") => {
+  const lightlyCleaned = stripTrailingConjunction(
+    stripAiContextTail(
+      resolveImplicitActionObject(
+        stripConditionalLead(
+          stripBinaryLead(
+            stripOrdinalListPrefix(stripAiMetaLead([title, details].filter(Boolean).join(". ").replace(/[.?!]+$/g, "").replace(/\s+/g, " ").trim()))
+          )
+        ),
+        rawInput
+      )
+    )
+  );
+
+  if (!lightlyCleaned || isAiMetaLanguage(lightlyCleaned) || isAiContextOnly(lightlyCleaned)) {
+    return "";
+  }
+
+  return hasUsableActionShape(lightlyCleaned) ? toSentenceCase(lightlyCleaned) : "";
+};
+
 const getLabelJoiner = (titles: string[]) =>
   titles.length === 2 &&
   titles.every((title) => !/^(?:send|call|email|fix|rest|book|schedule|wait|move|take|keep|follow up|reply|start|eat|prepare|ask)\b/i.test(title))
@@ -461,7 +482,9 @@ const normalizeAiCleanupResult = (value: unknown, rawInput = ""): AiCleanupResul
     )
     .map((action) => {
       const details = typeof action.details === "string" ? action.details.trim() : "";
-      const title = salvageAiActionTitle(action.title, details, rawInput);
+      const title =
+        salvageAiActionTitle(action.title, details, rawInput) ||
+        preserveLightlyCleanedActionTitle(action.title, details, rawInput);
 
       if (!title && typeof __DEV__ !== "undefined" && __DEV__) {
         console.debug("[ai-cleanup] dropped action after normalization", {

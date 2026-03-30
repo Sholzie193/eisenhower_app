@@ -89,13 +89,18 @@ export const AI_CLEANUP_JSON_SCHEMA = {
 
 export const AI_CLEANUP_PROMPT = [
   "You normalize messy decision input into strict JSON only.",
-  "Extract real actionable options or tasks.",
+  "Extract all distinct real actionable options or tasks.",
+  "Prefer completeness over narrowing.",
+  "Preserve up to 5 valid real actions from a long dilemma paragraph.",
+  "Do not drop an action because another one seems more urgent, more important, or more likely to win later.",
+  "Cleanup does not rank, choose, or narrow. Ranking happens later in the app.",
   "Keep context separate from actions.",
   "Keep tradeoffs short and concrete.",
   "For a simple binary X or Y choice, return exactly one decision_group with exactly two actions.",
   "Do not turn the second side of a binary choice into a separate decision.",
   "Strip conjunction leftovers like trailing 'or' from action titles.",
   "Keep context like hunger, tiredness, or stress out of action titles when possible.",
+  "Exclude only meta-language, context-only statements, reflective or emotional framing, and duplicates.",
   "Never turn setup, framing, or meta-language into actions.",
   "Never coach, explain, or give advice.",
   "Return no markdown, no code fences, and no text outside the JSON schema.",
@@ -147,6 +152,8 @@ const isAiMetaLanguage = (value: string) => AI_META_PATTERNS.some((pattern) => p
 const isAiContextOnly = (value: string) => AI_CONTEXT_ONLY_PATTERNS.some((pattern) => pattern.test(value));
 const hasAiActionVerb = (value: string) => AI_ACTION_VERB_PATTERNS.some((pattern) => pattern.test(value));
 const hasAiOptionNoun = (value: string) => AI_OPTION_NOUN_PATTERNS.some((pattern) => pattern.test(value));
+
+const hasUsableActionShape = (value: string) => hasAiActionVerb(value) || hasAiOptionNoun(value);
 
 const stripConditionalLead = (value: string) =>
   value
@@ -240,6 +247,44 @@ export const sanitizeAiActionTitle = (value: string, rawInput = "") => {
   }
 
   return toSentenceCase(sanitized);
+};
+
+const salvageAiActionTitle = (title: string, details = "", rawInput = "") => {
+  const direct = sanitizeAiActionTitle(title, rawInput);
+  if (direct) {
+    return direct;
+  }
+
+  const detailOnly = details ? sanitizeAiActionTitle(details, rawInput) : "";
+  if (detailOnly) {
+    return detailOnly;
+  }
+
+  const combined = sanitizeAiActionTitle([title, details].filter(Boolean).join(". "), rawInput);
+  if (combined) {
+    return combined;
+  }
+
+  const lightlyCleaned = stripTrailingConjunction(
+    stripReasonTail(
+      stripAiContextTail(
+        resolveImplicitActionObject(
+          stripConditionalLead(
+            stripBinaryLead(
+              stripOrdinalListPrefix(stripAiMetaLead(title.replace(/[.?!]+$/g, "").replace(/\s+/g, " ").trim()))
+            )
+          ),
+          rawInput
+        )
+      )
+    )
+  );
+
+  if (!lightlyCleaned || isAiMetaLanguage(lightlyCleaned) || isAiContextOnly(lightlyCleaned)) {
+    return "";
+  }
+
+  return hasUsableActionShape(lightlyCleaned) ? toSentenceCase(lightlyCleaned) : "";
 };
 
 const getLabelJoiner = (titles: string[]) =>
@@ -415,7 +460,7 @@ const normalizeAiCleanupResult = (value: unknown, rawInput = ""): AiCleanupResul
         typeof action.decision_group === "string"
     )
     .map((action) => ({
-      title: sanitizeAiActionTitle(action.title, rawInput),
+      title: salvageAiActionTitle(action.title, typeof action.details === "string" ? action.details.trim() : "", rawInput),
       details: typeof action.details === "string" ? action.details.trim() : "",
       decision_group: action.decision_group.trim(),
     }))

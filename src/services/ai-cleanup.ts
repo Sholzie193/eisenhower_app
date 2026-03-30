@@ -41,23 +41,59 @@ const AI_OPTION_NOUN_PATTERNS = [
 export const AI_CLEANUP_JSON_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["decision_type", "actions", "context", "tradeoffs", "decision_groups"],
+  required: ["decision_type", "summary", "items", "context", "tradeoffs", "decision_groups", "presentation"],
   properties: {
     decision_type: {
       type: "string",
       enum: ["single_task", "option_choice", "multiple_decisions", "foggy_dump"],
     },
-    actions: {
+    summary: {
+      type: "object",
+      additionalProperties: false,
+      required: ["situation", "primary_recommendation", "primary_reason"],
+      properties: {
+        situation: { type: "string" },
+        primary_recommendation: { type: "string" },
+        primary_reason: { type: "string" },
+      },
+    },
+    items: {
       type: "array",
       maxItems: 8,
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["title", "details", "decision_group"],
+        required: [
+          "id",
+          "title",
+          "details",
+          "type",
+          "decision_group",
+          "quadrant",
+          "urgency",
+          "importance",
+          "cost_of_delay",
+          "reversibility",
+          "friction",
+          "energy_fit",
+          "upside",
+          "why",
+        ],
         properties: {
+          id: { type: "string" },
           title: { type: "string" },
           details: { type: "string" },
+          type: { type: "string", enum: ["task", "option", "obligation"] },
           decision_group: { type: "string" },
+          quadrant: { type: "string", enum: ["do_now", "schedule", "delegate", "eliminate"] },
+          urgency: { type: "integer", minimum: 1, maximum: 5 },
+          importance: { type: "integer", minimum: 1, maximum: 5 },
+          cost_of_delay: { type: "integer", minimum: 1, maximum: 5 },
+          reversibility: { type: "integer", minimum: 1, maximum: 5 },
+          friction: { type: "integer", minimum: 1, maximum: 5 },
+          energy_fit: { type: "integer", minimum: 1, maximum: 5 },
+          upside: { type: "integer", minimum: 1, maximum: 5 },
+          why: { type: "string" },
         },
       },
     },
@@ -84,27 +120,49 @@ export const AI_CLEANUP_JSON_SCHEMA = {
         },
       },
     },
+    presentation: {
+      type: "object",
+      additionalProperties: false,
+      required: ["show_now", "show_next", "show_later"],
+      properties: {
+        show_now: {
+          type: "array",
+          maxItems: 4,
+          items: { type: "string" },
+        },
+        show_next: {
+          type: "array",
+          maxItems: 5,
+          items: { type: "string" },
+        },
+        show_later: {
+          type: "array",
+          maxItems: 8,
+          items: { type: "string" },
+        },
+      },
+    },
   },
 } as const;
 
 export const AI_CLEANUP_PROMPT = [
-  "You normalize messy decision input into strict JSON only.",
-  "Extract all distinct real actionable options or tasks.",
-  "Prefer completeness over narrowing.",
-  "Preserve up to 5 valid real actions from a long dilemma paragraph.",
-  "Do not drop an action because another one seems more urgent, more important, or more likely to win later.",
-  "Cleanup does not rank, choose, or narrow. Ranking happens later in the app.",
-  "Keep context separate from actions.",
-  "Keep tradeoffs short and concrete.",
-  "For a simple binary X or Y choice, return exactly one decision_group with exactly two actions.",
-  "Do not turn the second side of a binary choice into a separate decision.",
-  "Strip conjunction leftovers like trailing 'or' from action titles.",
-  "Keep context like hunger, tiredness, or stress out of action titles when possible.",
-  "Exclude only meta-language, context-only statements, reflective or emotional framing, and duplicates.",
-  "Never turn setup, framing, or meta-language into actions.",
-  "Never coach, explain, or give advice.",
-  "Return no markdown, no code fences, and no text outside the JSON schema.",
+  "You are the structured Clarity intake layer for a specialized decision tool.",
+  "Return strict JSON only.",
+  "Read the full messy input and preserve the whole picture before any narrowing.",
+  "Extract all meaningful tasks, options, or obligations mentioned, up to 5 real actions when present.",
+  "Do not drop a real action because another item seems more urgent, important, or likely to win later.",
+  "Never turn setup language, meta-language, reflective or emotional framing, or context-only statements into items.",
+  "Keep context separate from items. Keep tradeoffs separate from items.",
+  "Use only this framework for each item: urgency, importance, cost_of_delay, reversibility, friction, energy_fit, upside, and quadrant.",
+  "Quadrants mean: do_now for urgent and meaningful items, schedule for meaningful but less immediate items, delegate for items that should move but do not deserve full direct effort, eliminate for low-importance low-upside items.",
+  "Use stable 1 to 5 scores. 5 means stronger or more present. For friction, 5 means harder to execute. For reversibility, 5 means easier to undo or adjust. For energy_fit, 5 means it fits current capacity well.",
+  "The AI does structured intake and classification. It does not coach, freestyle, or act like a chatbot.",
+  "For a simple binary choice, return one decision group with exactly two items.",
+  "For multiple separate compare decisions, preserve them as separate decision groups.",
+  "For one crowded dilemma with several priorities, preserve all real items together and use presentation.show_now/show_next/show_later to keep the UI calm.",
   "Action titles must be short, clean, and human-readable.",
+  "Keep details, context, and tradeoffs brief and concrete.",
+  "No markdown, no code fences, and no commentary outside the JSON.",
 ].join(" ");
 
 const toSentenceCase = (value: string) => value.charAt(0).toUpperCase() + value.slice(1);
@@ -308,6 +366,13 @@ const preserveLightlyCleanedActionTitle = (title: string, details = "", rawInput
   return hasUsableActionShape(lightlyCleaned) ? toSentenceCase(lightlyCleaned) : "";
 };
 
+const sanitizeAiSummaryText = (value: string) =>
+  stripTrailingConjunction(
+    stripReasonTail(
+      stripAiContextTail(stripOrdinalListPrefix(stripAiMetaLead(value.replace(/[.?!]+$/g, "").replace(/\s+/g, " ").trim())))
+    )
+  );
+
 const getLabelJoiner = (titles: string[]) =>
   titles.length === 2 &&
   titles.every((title) => !/^(?:send|call|email|fix|rest|book|schedule|wait|move|take|keep|follow up|reply|start|eat|prepare|ask)\b/i.test(title))
@@ -415,13 +480,53 @@ const extractSimpleBinaryCleanup = (rawInput: string): AiCleanupResult | null =>
 
   return {
     decision_type: "option_choice",
-    actions: [
-      { title: left, details: "", decision_group: "group-1" },
-      { title: right, details: "", decision_group: "group-1" },
+    summary: {
+      situation: "A contained either-or choice came through clearly.",
+      primary_recommendation: "Compare the two clean options directly.",
+      primary_reason: "The main tradeoff is clear enough to keep this light.",
+    },
+    items: [
+      {
+        id: "item-1",
+        title: left,
+        details: "",
+        type: "option",
+        decision_group: "group-1",
+        quadrant: /\bnow|today|during lunch\b/i.test(left) ? "do_now" : "schedule",
+        urgency: /\bnow|today|during lunch\b/i.test(left) ? 4 : 2,
+        importance: 3,
+        cost_of_delay: /\bnow|today|during lunch\b/i.test(left) ? 3 : 2,
+        reversibility: 4,
+        friction: /\blunch|hungry|after lunch\b/i.test(left) ? 3 : 2,
+        energy_fit: /\bafter lunch|later|rest|eat first\b/i.test(left) ? 5 : 2,
+        upside: 3,
+        why: "This is one real option inside the choice.",
+      },
+      {
+        id: "item-2",
+        title: right,
+        details: "",
+        type: "option",
+        decision_group: "group-1",
+        quadrant: /\bafter lunch|later|wait\b/i.test(right) ? "schedule" : "do_now",
+        urgency: /\bafter lunch|later|wait\b/i.test(right) ? 2 : 4,
+        importance: 3,
+        cost_of_delay: /\bafter lunch|later|wait\b/i.test(right) ? 2 : 3,
+        reversibility: 4,
+        friction: /\bafter lunch|later|wait\b/i.test(right) ? 2 : 3,
+        energy_fit: /\bafter lunch|later|wait|eat first\b/i.test(right) ? 5 : 2,
+        upside: 3,
+        why: "This is the alternate option inside the same choice.",
+      },
     ],
     context,
     tradeoffs,
     decision_groups: [{ id: "group-1", label }],
+    presentation: {
+      show_now: ["item-1"],
+      show_next: ["item-2"],
+      show_later: [],
+    },
   };
 };
 
@@ -460,7 +565,14 @@ const isAiCleanupResult = (value: unknown): value is AiCleanupResult => {
     return false;
   }
 
-  if (!Array.isArray(maybeResult.actions) || !Array.isArray(maybeResult.decision_groups)) {
+  if (
+    !maybeResult.summary ||
+    typeof maybeResult.summary !== "object" ||
+    !Array.isArray(maybeResult.items) ||
+    !Array.isArray(maybeResult.decision_groups) ||
+    !maybeResult.presentation ||
+    typeof maybeResult.presentation !== "object"
+  ) {
     return false;
   }
 
@@ -472,38 +584,88 @@ const normalizeAiCleanupResult = (value: unknown, rawInput = ""): AiCleanupResul
     return null;
   }
 
-  const actions = value.actions
+  const summaryInput = value.summary as unknown as Record<string, unknown>;
+  const summary = {
+    situation:
+      typeof summaryInput.situation === "string" && sanitizeAiSummaryText(summaryInput.situation)
+        ? sanitizeAiSummaryText(summaryInput.situation)
+        : "The full situation came through, so the app kept the read structured and calm.",
+    primary_recommendation:
+      typeof summaryInput.primary_recommendation === "string" && sanitizeAiSummaryText(summaryInput.primary_recommendation)
+        ? sanitizeAiSummaryText(summaryInput.primary_recommendation)
+        : "Start with the clearest next move.",
+    primary_reason:
+      typeof summaryInput.primary_reason === "string" && sanitizeAiSummaryText(summaryInput.primary_reason)
+        ? sanitizeAiSummaryText(summaryInput.primary_reason)
+        : "The recommendation is based on the strongest mix of pressure, importance, and fit.",
+  };
+
+  const items = value.items
     .filter(
-      (action): action is { title: string; details?: string; decision_group: string } =>
-        Boolean(action) &&
-        typeof action === "object" &&
-        typeof action.title === "string" &&
-        typeof action.decision_group === "string"
+      (
+        item
+      ): item is {
+        id: string;
+        title: string;
+        details?: string;
+        type: "task" | "option" | "obligation";
+        decision_group: string;
+        quadrant: "do_now" | "schedule" | "delegate" | "eliminate";
+        urgency: number;
+        importance: number;
+        cost_of_delay: number;
+        reversibility: number;
+        friction: number;
+        energy_fit: number;
+        upside: number;
+        why: string;
+      } =>
+        Boolean(item) &&
+        typeof item === "object" &&
+        typeof item.id === "string" &&
+        typeof item.title === "string" &&
+        typeof item.decision_group === "string" &&
+        typeof item.type === "string" &&
+        typeof item.quadrant === "string"
     )
-    .map((action) => {
-      const details = typeof action.details === "string" ? action.details.trim() : "";
+    .map((item, index) => {
+      const details = typeof item.details === "string" ? item.details.trim() : "";
       const title =
-        salvageAiActionTitle(action.title, details, rawInput) ||
-        preserveLightlyCleanedActionTitle(action.title, details, rawInput);
+        salvageAiActionTitle(item.title, details, rawInput) ||
+        preserveLightlyCleanedActionTitle(item.title, details, rawInput);
 
       if (!title && typeof __DEV__ !== "undefined" && __DEV__) {
         console.debug("[ai-cleanup] dropped action after normalization", {
-          rawTitle: action.title,
+          rawTitle: item.title,
           rawDetails: details,
-          decisionGroup: action.decision_group,
+          decisionGroup: item.decision_group,
         });
       }
 
       return {
+        id: item.id.trim() || `item-${index + 1}`,
         title,
         details,
-        decision_group: action.decision_group.trim(),
+        type: item.type,
+        decision_group: item.decision_group.trim() || "group-1",
+        quadrant: item.quadrant,
+        urgency: Math.max(1, Math.min(5, Number(item.urgency) || 3)),
+        importance: Math.max(1, Math.min(5, Number(item.importance) || 3)),
+        cost_of_delay: Math.max(1, Math.min(5, Number(item.cost_of_delay) || 3)),
+        reversibility: Math.max(1, Math.min(5, Number(item.reversibility) || 3)),
+        friction: Math.max(1, Math.min(5, Number(item.friction) || 3)),
+        energy_fit: Math.max(1, Math.min(5, Number(item.energy_fit) || 3)),
+        upside: Math.max(1, Math.min(5, Number(item.upside) || 3)),
+        why:
+          typeof item.why === "string" && sanitizeAiSummaryText(item.why)
+            ? sanitizeAiSummaryText(item.why)
+            : "This is one of the meaningful items in the situation.",
       };
     })
-    .filter((action) => action.title && action.decision_group)
+    .filter((item) => item.title && item.decision_group)
     .slice(0, 8);
 
-  const actionGroups = [...new Set(actions.map((action) => action.decision_group))];
+  const itemGroups = [...new Set(items.map((item) => item.decision_group))];
   const decisionGroups = value.decision_groups
     .filter(
       (group): group is { id: string; label: string } =>
@@ -514,31 +676,37 @@ const normalizeAiCleanupResult = (value: unknown, rawInput = ""): AiCleanupResul
     )
     .map((group) => {
       const groupId = group.id.trim();
-      const groupActionTitles = actions
-        .filter((action) => action.decision_group === groupId)
-        .map((action) => action.title);
+      const groupActionTitles = items
+        .filter((item) => item.decision_group === groupId)
+        .map((item) => item.title);
 
       return {
         id: groupId,
         label: sanitizeAiDecisionGroupLabel(group.label, groupActionTitles, rawInput),
       };
     })
-    .filter((group) => group.id && actionGroups.includes(group.id))
+    .filter((group) => group.id && itemGroups.includes(group.id))
     .slice(0, 6);
 
   const context = trimStringArray(value.context, 8);
   const tradeoffs = trimStringArray(value.tradeoffs, 8);
+  const presentationInput = value.presentation as unknown as Record<string, unknown>;
+  const presentation = {
+    show_now: trimStringArray(presentationInput.show_now, 4) ?? [],
+    show_next: trimStringArray(presentationInput.show_next, 5) ?? [],
+    show_later: trimStringArray(presentationInput.show_later, 8) ?? [],
+  };
 
-  if (!actions.length || !context || !tradeoffs) {
+  if (!items.length || !context || !tradeoffs) {
     return null;
   }
 
-  const repairedDecisionGroups = actionGroups
+  const repairedDecisionGroups = itemGroups
     .map((groupId) => {
       const existingGroup = decisionGroups.find((group) => group.id === groupId);
-      const actionTitles = actions
-        .filter((action) => action.decision_group === groupId)
-        .map((action) => action.title);
+      const actionTitles = items
+        .filter((item) => item.decision_group === groupId)
+        .map((item) => item.title);
       const fallbackLabel = buildDecisionGroupLabelFromActions(actionTitles);
       const nextLabel = existingGroup?.label || fallbackLabel;
 
@@ -551,12 +719,28 @@ const normalizeAiCleanupResult = (value: unknown, rawInput = ""): AiCleanupResul
     return null;
   }
 
+  const survivingIds = new Set(items.map((item) => item.id));
+  const normalizePresentationIds = (ids: string[]) =>
+    ids.filter((id, index, list) => survivingIds.has(id) && list.indexOf(id) === index);
+
+  const normalizedPresentation = {
+    show_now: normalizePresentationIds(presentation.show_now),
+    show_next: normalizePresentationIds(presentation.show_next),
+    show_later: normalizePresentationIds(presentation.show_later),
+  };
+
+  if (!normalizedPresentation.show_now.length) {
+    normalizedPresentation.show_now = [items[0].id];
+  }
+
   return {
     decision_type: value.decision_type,
-    actions,
+    summary,
+    items,
     context,
     tradeoffs,
     decision_groups: repairedDecisionGroups,
+    presentation: normalizedPresentation,
   };
 };
 
@@ -580,11 +764,11 @@ export const cleanupClarityInputWithAi = async (rawInput: string): Promise<AiCle
       body: JSON.stringify({
         model: OPENAI_MODEL,
         temperature: 0.1,
-        max_completion_tokens: 350,
+        max_completion_tokens: 650,
         response_format: {
           type: "json_schema",
           json_schema: {
-            name: "clarity_cleanup",
+            name: "clarity_decision_intake",
             strict: true,
             schema: AI_CLEANUP_JSON_SCHEMA,
           },

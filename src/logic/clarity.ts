@@ -1,5 +1,5 @@
 import { IMPACT_AREA_LABELS } from "../constants/quadrants";
-import { evaluateTriage } from "./triage";
+import { evaluateTriage, getQuadrantGuidance } from "./triage";
 import { sanitizeAiActionTitle, sanitizeAiDecisionGroupLabel } from "../services/ai-cleanup";
 import type { AiCleanupResult } from "../types/ai-cleanup";
 import type {
@@ -15,6 +15,8 @@ import type {
   DueWindow,
   ImpactArea,
   ImportanceSignal,
+  Quadrant,
+  TriageResult,
   TriageAnswers,
 } from "../types/decision";
 
@@ -253,6 +255,91 @@ const joinReasonFragments = (fragments: string[]) => {
   }
 
   return `${fragments.slice(0, -1).join(", ")}, and ${fragments.at(-1)}`;
+};
+
+const mapAiQuadrant = (quadrant: AiCleanupResult["items"][number]["quadrant"]): Quadrant => {
+  switch (quadrant) {
+    case "do_now":
+      return "doNow";
+    case "schedule":
+      return "schedule";
+    case "delegate":
+      return "delegate";
+    case "eliminate":
+    default:
+      return "eliminate";
+  }
+};
+
+const getDueWindowFromAiUrgency = (
+  urgency: number,
+  costOfDelay: number
+): { hasDeadline: boolean; dueWindow: DueWindow } => {
+  if (urgency >= 5) {
+    return { hasDeadline: true, dueWindow: "today" };
+  }
+
+  if (urgency >= 4) {
+    return { hasDeadline: true, dueWindow: costOfDelay >= 4 ? "today" : "tomorrow" };
+  }
+
+  if (urgency >= 3 && costOfDelay >= 3) {
+    return { hasDeadline: true, dueWindow: "thisWeek" };
+  }
+
+  if (urgency >= 3) {
+    return { hasDeadline: true, dueWindow: "later" };
+  }
+
+  return { hasDeadline: false, dueWindow: "noDeadline" };
+};
+
+const getDelayImpactFromAi = (costOfDelay: number): TriageAnswers["delayImpact"] => {
+  if (costOfDelay >= 5) {
+    return "severe";
+  }
+
+  if (costOfDelay >= 4) {
+    return "disruptive";
+  }
+
+  if (costOfDelay >= 2) {
+    return "annoying";
+  }
+
+  return "none";
+};
+
+const getImportanceSignalFromAi = (importance: number, upside: number): ImportanceSignal => {
+  if (importance >= 4 || upside >= 4) {
+    return "meaningful";
+  }
+
+  if (importance <= 2 && upside <= 2) {
+    return "mostlyNoise";
+  }
+
+  return "unclear";
+};
+
+const getHandlingChoiceFromAi = (
+  quadrant: Quadrant,
+  friction: number,
+  reversibility: number
+): TriageAnswers["handlingChoice"] => {
+  if (quadrant === "delegate") {
+    if (friction >= 4) {
+      return "reduce";
+    }
+
+    return reversibility >= 4 ? "automate" : "delegate";
+  }
+
+  if (quadrant === "eliminate") {
+    return "ignore";
+  }
+
+  return "direct";
 };
 
 const computeCompositeScore = (
@@ -1454,6 +1541,105 @@ const buildCandidate = (sourceText: string, index: number, contextSignals: Conte
   return candidate;
 };
 
+const buildAiTriageResult = (
+  item: AiCleanupResult["items"][number],
+  triageAnswers: TriageAnswers
+): TriageResult => {
+  const quadrant = mapAiQuadrant(item.quadrant);
+  const guidance = getQuadrantGuidance(quadrant, triageAnswers);
+
+  return {
+    urgencyScore: Number((item.urgency * 2).toFixed(1)),
+    importanceScore: Number((item.importance * 2).toFixed(1)),
+    quadrant,
+    recommendation: guidance.recommendation,
+    nextStep: guidance.nextStep,
+    explanation: item.why,
+    urgencyReasons: [
+      item.urgency >= 4
+        ? "The AI intake marked this as carrying real time pressure."
+        : "The AI intake did not mark this as highly time-sensitive.",
+      item.cost_of_delay >= 4
+        ? "Waiting would make the downside grow meaningfully."
+        : "The downside of waiting is present, but not extreme.",
+    ],
+    importanceReasons: [
+      item.importance >= 4
+        ? "The AI intake marked this as meaningfully important."
+        : "The AI intake did not rate this as especially central.",
+      item.upside >= 4
+        ? "There is meaningful upside if this goes well."
+        : "The upside looks moderate rather than exceptional.",
+    ],
+  };
+};
+
+const buildAiCandidate = (
+  item: AiCleanupResult["items"][number],
+  index: number,
+  contextSignals: ContextSignal[]
+): ClarityCandidate => {
+  const sourceText = [item.title, item.details, item.why].filter(Boolean).join(". ");
+  const normalizedText = sourceText.toLowerCase();
+  const impactAreas = inferImpactAreas([item.title, item.details].filter(Boolean).join(". ").toLowerCase());
+  const due = getDueWindowFromAiUrgency(item.urgency, item.cost_of_delay);
+  const triageAnswers: TriageAnswers = {
+    hasDeadline: due.hasDeadline,
+    dueWindow: due.dueWindow,
+    delayImpact: getDelayImpactFromAi(item.cost_of_delay),
+    impactAreas,
+    importanceSignal: getImportanceSignalFromAi(item.importance, item.upside),
+    handlingChoice: getHandlingChoiceFromAi(mapAiQuadrant(item.quadrant), item.friction, item.reversibility),
+  };
+  const triageResult = buildAiTriageResult(item, triageAnswers);
+  const delayCostScore = clamp((item.cost_of_delay - 1) * 0.95 + 0.4);
+  const longTermScore = clamp((item.upside - 1) * 0.9 + 0.6);
+  const reliefScore = clamp(((6 - item.friction) + item.energy_fit) / 2.1);
+  const reversibilityScore = clamp((item.reversibility - 1) * 0.95);
+  const executionEaseScore = clamp(((6 - item.friction) + item.energy_fit) / 2.2);
+  const decisionFitScore = clamp(getContextAlignmentScore(normalizedText, contextSignals) + (item.energy_fit - 3) * 0.35, -2, 2);
+  const urgencyWeight = item.urgency * 0.95;
+  const importanceWeight = item.importance * 1.15;
+  const delayWeight = item.cost_of_delay * 1.05;
+  const easeWeight = (6 - item.friction) * 0.62;
+  const energyWeight = item.energy_fit * 0.58;
+  const upsideWeight = item.upside * 0.72;
+  const reversibilityWeight = item.reversibility * 0.32;
+  const quadrantBonus =
+    item.quadrant === "do_now" ? 0.7 : item.quadrant === "schedule" ? 0.42 : item.quadrant === "delegate" ? 0.18 : 0;
+  const compositeScore = Number(
+    (
+      urgencyWeight +
+      importanceWeight +
+      delayWeight +
+      easeWeight +
+      energyWeight +
+      upsideWeight +
+      reversibilityWeight +
+      quadrantBonus +
+      decisionFitScore
+    ).toFixed(2)
+  );
+
+  return {
+    id: item.id || `candidate-${index + 1}`,
+    title: buildCandidateTitle(item.title),
+    sourceText: toSentenceCase(cleanCandidate(sourceText)),
+    category: getSuggestedCategory(impactAreas),
+    triageAnswers,
+    triageResult,
+    delayCostScore,
+    longTermScore,
+    reliefScore,
+    reversibilityScore,
+    executionEaseScore,
+    decisionFitScore,
+    compositeScore,
+    calmingWhy: item.why,
+    reasonTags: [],
+  };
+};
+
 const refreshCandidate = (
   candidate: ClarityCandidate,
   patch: {
@@ -1605,6 +1791,44 @@ const getSummary = (mode: ClarityMode, candidateCount: number, narrowedFromCount
   return "The input looked a little foggy, so the app pulled out the likely options before making a calmer recommendation.";
 };
 
+const orderCandidatesForPresentation = (
+  candidates: ClarityCandidate[],
+  presentation?: AiCleanupResult["presentation"]
+) => {
+  if (!presentation) {
+    return candidates;
+  }
+
+  const nowIds = new Set(presentation.show_now);
+  const nextIds = new Set(presentation.show_next);
+  const laterIds = new Set(presentation.show_later);
+
+  const bucketOrder = (candidate: ClarityCandidate) => {
+    if (nowIds.has(candidate.id)) {
+      return 0;
+    }
+
+    if (nextIds.has(candidate.id)) {
+      return 1;
+    }
+
+    if (laterIds.has(candidate.id)) {
+      return 2;
+    }
+
+    return 1;
+  };
+
+  return [...candidates].sort((left, right) => {
+    const bucketDiff = bucketOrder(left) - bucketOrder(right);
+    if (bucketDiff !== 0) {
+      return bucketDiff;
+    }
+
+    return right.compositeScore - left.compositeScore;
+  });
+};
+
 const finalizeAnalysis = (
   rawInput: string,
   mode: ClarityMode,
@@ -1619,6 +1843,8 @@ const finalizeAnalysis = (
     activeDecisionGroupId?: string;
     contextSignals?: ContextSignal[];
     decisionLabelTexts?: string[];
+    aiSummary?: AiCleanupResult["summary"];
+    presentation?: AiCleanupResult["presentation"];
   }
 ): ClarityAnalysis => {
   const sortedCandidates = sortCandidates(candidates);
@@ -1650,6 +1876,7 @@ const finalizeAnalysis = (
   const scoreGap =
     topCandidates.length === 2 ? topCandidates[0].compositeScore - topCandidates[1].compositeScore : 9;
   const shouldAskQuestion =
+    options?.source !== "ai" &&
     !selectedId &&
     mode !== "single" &&
     topCandidates.length === 2 &&
@@ -1665,6 +1892,16 @@ const finalizeAnalysis = (
       }
     : null;
 
+  const presentedCandidates = orderCandidatesForPresentation(enrichedCandidates, options?.presentation);
+  const presentation = options?.presentation;
+  const laterIds = new Set(presentation?.show_later ?? []);
+  const activeItems = presentedCandidates.filter(
+    (candidate, index) => index > 0 && !laterIds.has(candidate.id)
+  );
+  const laterItems = presentedCandidates.filter(
+    (candidate) => laterIds.has(candidate.id)
+  );
+
   return {
     rawInput,
     source: options?.source ?? "fallback",
@@ -1679,16 +1916,20 @@ const finalizeAnalysis = (
     contextKinds: contextSignals.map((signal) => signal.kind),
     contextHints: contextSignals.map((signal) => signal.label),
     summary:
-      decisionGroups.length > 1 && activeDecisionGroupId
+      options?.aiSummary?.situation ??
+      (decisionGroups.length > 1 && activeDecisionGroupId
         ? `I found ${decisionGroups.length} separate choices here. This resolves the one with the clearest immediate weight first, and another decision remains for later.`
         : decisionShape === "option_choice"
           ? decisionGate === "fast"
             ? "This looks like a contained choice, so the app kept the answer light and direct."
             : "This looks like a real option choice, so the app weighed the options before recommending the cleaner move."
-          : getSummary(mode, enrichedCandidates.length, narrowedFromCount),
-    firstMove: enrichedCandidates[0],
-    candidates: enrichedCandidates,
-    waiting: enrichedCandidates.slice(1),
+          : getSummary(mode, enrichedCandidates.length, narrowedFromCount)),
+    aiSummary: options?.aiSummary,
+    firstMove: presentedCandidates[0],
+    candidates: presentedCandidates,
+    activeItems,
+    laterItems,
+    waiting: laterItems.length ? laterItems : presentedCandidates.slice(1),
     question,
     candidateRelationship,
     decisionGroups,
@@ -1727,87 +1968,90 @@ export const analyzeStructuredClarityInput = (
 ): ClarityAnalysis => {
   const normalizedInput = rawInput.replace(/\s+/g, " ").trim();
   const extractedFallbackActions = extractActionClauses(normalizedInput);
-  const fallbackGroupId = cleanup.decision_groups[0]?.id ?? "group-1";
-  const actions = cleanup.actions
-    .map((action, index) => ({
-      ...action,
-      id: `candidate-${index + 1}`,
-      decision_group: action.decision_group || fallbackGroupId,
-      details: action.details?.trim() ?? "",
-      title: action.title.trim() || sanitizeAiActionTitle(action.title, normalizedInput),
+  const fallbackGroupId = cleanup.decision_groups[0]?.id ?? cleanup.items[0]?.decision_group ?? "group-1";
+  const items = cleanup.items
+    .map((item, index) => ({
+      ...item,
+      id: item.id?.trim() || `item-${index + 1}`,
+      decision_group: item.decision_group || fallbackGroupId,
+      details: item.details?.trim() ?? "",
+      title: item.title.trim() || sanitizeAiActionTitle(item.title, normalizedInput),
     }))
-    .filter((action) => action.title);
+    .filter((item) => item.title);
+  const aiCandidates = items.map((item, index) => buildAiCandidate(item, index, extractContextSignals([normalizedInput, ...cleanup.context, ...cleanup.tradeoffs].join(". "))));
   const cleanedActionTitles = mergeMissingActionTexts(
-    actions.map((action) => action.title),
+    aiCandidates.map((candidate) => candidate.title),
     extractedFallbackActions
   );
+  const fallbackCandidates = cleanedActionTitles
+    .filter(
+      (title) => aiCandidates.every((candidate) => candidate.title.trim().toLowerCase() !== buildCandidateTitle(title).trim().toLowerCase())
+    )
+    .map((title, index) => buildCandidate(title, aiCandidates.length + index, extractContextSignals([normalizedInput, ...cleanup.context, ...cleanup.tradeoffs].join(". "))));
+  const allCandidates = [...aiCandidates, ...fallbackCandidates];
   const decisionGroups = cleanup.decision_groups
     .map((group) => {
-      const groupActions = actions.filter((action) => action.decision_group === group.id);
+      const groupItems = items.filter((item) => item.decision_group === group.id);
 
-      if (!groupActions.length) {
+      if (!groupItems.length) {
         return null;
       }
 
       const sanitizedLabel = sanitizeAiDecisionGroupLabel(
-        group.label || groupActions.map((action) => action.title).join(" or "),
-        groupActions.map((action) => action.title),
+        group.label || groupItems.map((item) => item.title).join(" or "),
+        groupItems.map((item) => item.title),
         normalizedInput
       );
 
       return {
         id: group.id,
         label: sanitizedLabel,
-        sourceText: [sanitizedLabel, ...groupActions.map((action) => action.details).filter(Boolean), ...cleanup.tradeoffs, ...cleanup.context]
+        sourceText: [sanitizedLabel, ...groupItems.map((item) => item.details).filter(Boolean), ...cleanup.tradeoffs, ...cleanup.context]
           .join(". ")
           .trim(),
-        candidateTexts:
-          cleanup.decision_type === "foggy_dump" || cleanup.decision_groups.length <= 1
-            ? mergeMissingActionTexts(
-                groupActions.map((action) => action.title),
-                group.id === fallbackGroupId ? extractedFallbackActions : []
-              )
-            : groupActions.map((action) => action.title),
+        candidateTexts: groupItems.map((item) => item.title),
         candidateRelationship:
-          groupActions.length > 1 && cleanup.decision_type !== "foggy_dump" ? ("alternatives" as const) : ("tasks" as const),
+          groupItems.length > 1 && cleanup.decision_type !== "foggy_dump" ? ("alternatives" as const) : ("tasks" as const),
         ...(cleanup.tradeoffs[0] ? { tradeoffHint: cleanup.tradeoffs[0] } : {}),
       };
     })
     .filter((group): group is ClarityDecisionGroup => Boolean(group));
+  const contextSignals = extractContextSignals([normalizedInput, ...cleanup.context, ...cleanup.tradeoffs].join(". "));
+  if (!allCandidates.length) {
+    return analyzeClarityInput(normalizedInput, selectedDecisionGroupId);
+  }
 
-  const keepActionsCombined = shouldKeepStructuredActionsCombined(
-    normalizedInput,
-    cleanup,
-    decisionGroups,
-    cleanedActionTitles,
-    extractedFallbackActions,
-    selectedDecisionGroupId
-  );
+  const hasSeparateDecisionGroups =
+    cleanup.decision_type === "multiple_decisions" &&
+    decisionGroups.length > 1 &&
+    hasClearlySeparateCompareDecisions(normalizedInput, decisionGroups);
   const selectedDecisionGroup = selectedDecisionGroupId
     ? decisionGroups.find((group) => group.id === selectedDecisionGroupId)
     : undefined;
-  const autoPrimaryDecisionGroup =
-    !keepActionsCombined && !selectedDecisionGroup && decisionGroups.length
-      ? pickPrimaryDecisionGroup(decisionGroups)
-      : undefined;
-  const analysisDecisionGroup = selectedDecisionGroup ?? autoPrimaryDecisionGroup;
-  const activeActionTitles = analysisDecisionGroup
-    ? analysisDecisionGroup.candidateTexts
-    : cleanedActionTitles;
-  const contextSignals = extractContextSignals([normalizedInput, ...cleanup.context, ...cleanup.tradeoffs].join(". "));
-  const builtCandidates = activeActionTitles.map((actionTitle, index) => buildCandidate(actionTitle, index, contextSignals));
-  if (!builtCandidates.length) {
-    return analyzeClarityInput(normalizedInput, selectedDecisionGroupId);
+  const activeCandidates = selectedDecisionGroup
+    ? allCandidates.filter((candidate) =>
+        items
+          .filter((item) => item.decision_group === selectedDecisionGroup.id)
+          .some((item) => buildCandidateTitle(item.title).toLowerCase() === candidate.title.toLowerCase())
+      )
+    : allCandidates;
+  const visibleDecisionGroups = hasSeparateDecisionGroups ? decisionGroups : [];
+  const candidateRelationship =
+    selectedDecisionGroup?.candidateRelationship ??
+    (cleanup.decision_type === "option_choice" ? "alternatives" : "tasks");
+  const visiblePresentation = {
+    show_now: cleanup.presentation.show_now.filter((id) => activeCandidates.some((candidate) => candidate.id === id)),
+    show_next: cleanup.presentation.show_next.filter((id) => activeCandidates.some((candidate) => candidate.id === id)),
+    show_later: cleanup.presentation.show_later.filter((id) => activeCandidates.some((candidate) => candidate.id === id)),
+  };
+  if (!visiblePresentation.show_now.length && activeCandidates[0]) {
+    visiblePresentation.show_now = [activeCandidates[0].id];
   }
-  const candidateRelationship = analysisDecisionGroup
-    ? analysisDecisionGroup.candidateRelationship
-    : "tasks";
-  const visibleDecisionGroups = keepActionsCombined ? [] : decisionGroups;
 
   return finalizeAnalysis(
     normalizedInput,
     getModeFromAiDecisionType(cleanup.decision_type),
-    builtCandidates,
+    activeCandidates,
     undefined,
     undefined,
     {
@@ -1815,9 +2059,11 @@ export const analyzeStructuredClarityInput = (
       structuredCleanup: cleanup,
       candidateRelationship,
       decisionGroups: visibleDecisionGroups,
-      activeDecisionGroupId: analysisDecisionGroup?.id,
+      activeDecisionGroupId: selectedDecisionGroup?.id,
       contextSignals,
-      decisionLabelTexts: activeActionTitles,
+      decisionLabelTexts: activeCandidates.map((candidate) => candidate.title),
+      aiSummary: cleanup.summary,
+      presentation: visiblePresentation,
     }
   );
 };

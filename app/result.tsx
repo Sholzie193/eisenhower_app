@@ -13,31 +13,9 @@ import { goBackOrFallback } from "../src/utils/navigation";
 import type { ClarityAnalysis, ClarityCandidate } from "../src/types/decision";
 
 const getClarityLabel = (analysis: ClarityAnalysis, candidate: ClarityCandidate) => {
-  if (analysis.decisionShape === "option_choice") {
-    switch (candidate.triageResult.quadrant) {
-      case "doNow":
-        return "Best first option";
-      case "schedule":
-        return "Best next option";
-      case "delegate":
-        return "Lighter-touch option";
-      case "eliminate":
-      default:
-        return "Lower-pressure option";
-    }
-  }
-
-  switch (candidate.triageResult.quadrant) {
-    case "doNow":
-      return "Do this first";
-    case "schedule":
-      return "Protect this next";
-    case "delegate":
-      return "Reduce your direct effort";
-    case "eliminate":
-    default:
-      return "Let this stay lighter";
-  }
+  void analysis;
+  void candidate;
+  return "Best next move";
 };
 
 const getActionHeading = (analysis: ClarityAnalysis, candidate: ClarityCandidate) => {
@@ -118,32 +96,6 @@ const getWaitCopy = (candidate: ClarityCandidate) => {
   }
 };
 
-const getWaitingHeading = (analysis: ClarityAnalysis) => {
-  if (analysis.activeDecisionGroupId) {
-    return analysis.decisionShape === "option_choice" ? "Other option" : "Not the first move";
-  }
-
-  if (analysis.decisionShape === "option_choice") {
-    return "Other options";
-  }
-
-  return "This can wait";
-};
-
-const getWaitingEmptyCopy = (analysis: ClarityAnalysis) => {
-  if (analysis.activeDecisionGroupId) {
-    return analysis.decisionShape === "option_choice"
-      ? "No other option looks stronger than the one above."
-      : "Nothing else in this decision looks clearer than the move above.";
-  }
-
-  if (analysis.decisionShape === "option_choice") {
-    return "No other option in this comparison looks stronger than the move above.";
-  }
-
-  return "Nothing else in this input looks more important than the move above.";
-};
-
 const getAdaptiveWaitCopy = (analysis: ClarityAnalysis, candidate: ClarityCandidate) => {
   if (analysis.activeDecisionGroupId) {
     return analysis.decisionShape === "option_choice"
@@ -159,20 +111,11 @@ const getAdaptiveWaitCopy = (analysis: ClarityAnalysis, candidate: ClarityCandid
 };
 
 const getModeHeading = (analysis: ClarityAnalysis) => {
-  if (analysis.decisionShape === "option_choice") {
-    return "Here’s the cleaner option.";
+  if (analysis.decisionShape === "multiple_decisions") {
+    return "Here’s the clearest move first.";
   }
 
-  const { mode } = analysis;
-  if (mode === "single") {
-    return "This looks like the move.";
-  }
-
-  if (mode === "compare") {
-    return "This is the clearest first move.";
-  }
-
-  return "Here’s the clearer shape.";
+  return "Clearer next step";
 };
 
 function ClarityResultScreen() {
@@ -191,13 +134,15 @@ function ClarityResultScreen() {
     return <Redirect href="/" />;
   }
 
-  const { firstMove, question, waiting } = claritySession;
+  const { firstMove, question } = claritySession;
   const currentDecisionGroup =
     claritySession.decisionGroups.find((group) => group.id === claritySession.activeDecisionGroupId) ??
     (claritySession.decisionGroups.length === 1 ? claritySession.decisionGroups[0] : undefined);
   const remainingDecisionGroups = claritySession.decisionGroups.filter(
     (group) => group.id !== claritySession.activeDecisionGroupId
   );
+  const activeItems = claritySession.activeItems.slice(0, 3);
+  const laterItems = claritySession.laterItems.slice(0, 3);
   const questionCandidates = question
     ? claritySession.candidates.filter((candidate) => question.candidateIds.includes(candidate.id))
     : [];
@@ -302,7 +247,9 @@ function ClarityResultScreen() {
               </Text>
             ) : null}
             <Text style={[styles.primaryTitle, { color: theme.colors.text }]}>{firstMove.title}</Text>
-            <Text style={[styles.primaryWhy, { color: theme.colors.textMuted }]}>{firstMove.calmingWhy}</Text>
+            <Text style={[styles.primaryWhy, { color: theme.colors.textMuted }]}>
+              {claritySession.aiSummary?.primary_reason ?? firstMove.calmingWhy}
+            </Text>
             {firstMove.reasonTags.length ? (
               <View style={styles.factorRow}>
                 {firstMove.reasonTags.map((tag) => (
@@ -333,7 +280,7 @@ function ClarityResultScreen() {
               {getActionHeading(claritySession, firstMove)}
             </Text>
             <Text style={[styles.nextMove, { color: theme.colors.text }]}>
-              {getDisplayedRecommendation(claritySession, firstMove)}
+              {claritySession.aiSummary?.primary_recommendation ?? getDisplayedRecommendation(claritySession, firstMove)}
             </Text>
             <Text style={[styles.nextStep, { color: theme.colors.textMuted }]}>
               {getDisplayedNextStep(claritySession, firstMove)}
@@ -341,10 +288,30 @@ function ClarityResultScreen() {
           </NeuCard>
 
           <NeuCard variant="flat" style={styles.waitCard}>
-            <Text style={[styles.label, { color: theme.colors.textSoft }]}>{getWaitingHeading(claritySession)}</Text>
-            {waiting.length ? (
+            <Text style={[styles.label, { color: theme.colors.textSoft }]}>What else is active</Text>
+            {activeItems.length ? (
               <View style={styles.waitList}>
-                {waiting.slice(0, 3).map((candidate) => (
+                {activeItems.map((candidate) => (
+                  <View key={candidate.id} style={styles.waitRow}>
+                    <Text style={[styles.waitTitle, { color: theme.colors.text }]}>{candidate.title}</Text>
+                    <Text style={[styles.waitText, { color: theme.colors.textMuted }]}>
+                      {candidate.calmingWhy}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            ) : (
+              <Text style={[styles.waitText, { color: theme.colors.textMuted }]}>
+                Nothing else looks as immediate as the move above.
+              </Text>
+            )}
+          </NeuCard>
+
+          <NeuCard variant="flat" style={styles.waitCard}>
+            <Text style={[styles.label, { color: theme.colors.textSoft }]}>What can wait</Text>
+            {laterItems.length ? (
+              <View style={styles.waitList}>
+                {laterItems.map((candidate) => (
                   <View key={candidate.id} style={styles.waitRow}>
                     <Text style={[styles.waitTitle, { color: theme.colors.text }]}>{candidate.title}</Text>
                     <Text style={[styles.waitText, { color: theme.colors.textMuted }]}>
@@ -352,17 +319,17 @@ function ClarityResultScreen() {
                     </Text>
                   </View>
                 ))}
-                {claritySession.narrowedFromCount && claritySession.narrowedFromCount > claritySession.candidates.length ? (
+                {claritySession.candidates.length > 1 + activeItems.length + laterItems.length ? (
                   <Text style={[styles.waitFootnote, { color: theme.colors.textSoft }]}>
-                    {claritySession.narrowedFromCount - claritySession.candidates.length} more idea
-                    {claritySession.narrowedFromCount - claritySession.candidates.length === 1 ? "" : "s"} stayed in
-                    the background for now.
+                    {claritySession.candidates.length - (1 + activeItems.length + laterItems.length)} more item
+                    {claritySession.candidates.length - (1 + activeItems.length + laterItems.length) === 1 ? "" : "s"} stayed
+                    in the background for now.
                   </Text>
                 ) : null}
               </View>
             ) : (
               <Text style={[styles.waitText, { color: theme.colors.textMuted }]}>
-                {getWaitingEmptyCopy(claritySession)}
+                Nothing else needs to sit heavily in the foreground right now.
               </Text>
             )}
           </NeuCard>

@@ -289,6 +289,26 @@ const increaseDelayImpact = (delayImpact: TriageAnswers["delayImpact"]) => {
 const hasExplicitCompareScaffold = (value: string) =>
   /\b(decide between|which one|vs\.?|versus|whether to|should i)\b/i.test(value);
 
+const stripDisplayOrdinalPrefix = (value: string) =>
+  value
+    .replace(/^\s*(?:\((?:[1-5])\)|[1-5][.:]|(?:one|two|three|four|five|first|second|third|fourth|fifth):)\s*/i, "")
+    .trim();
+
+const stripDisplayMetaLead = (value: string) =>
+  value
+    .replace(
+      /^(?:the real options are|real options are|the options are|actually handle first|actually do first|handle first|do first|what should (?:i\s+)?actually do first(?:,?\s*what should come second,?\s*and?\s*what can wait)?|what should come second|what can wait|what should wait|what to do (?:now|next|first)|which is the cleaner move|which is the clearer shape|this looks like the move|this looks like the clearer option|here(?:['’]?)s the cleaner option|here(?:['’]?)s the clearer shape|decision)\s*[:,-]?\s*/i,
+      ""
+    )
+    .trim();
+
+const stripDisplayTrailingConjunction = (value: string) => value.replace(/\b(?:or|and|but)\s*$/i, "").trim();
+
+const cleanDisplayText = (value: string) =>
+  stripDisplayTrailingConjunction(
+    stripDisplayMetaLead(stripDisplayOrdinalPrefix(value.replace(/[.?!]+$/g, "").replace(/\s+/g, " ").trim()))
+  );
+
 const stripOptionIntro = (value: string) =>
   OPTION_INTRO_PREFIXES.reduce((currentValue, expression) => currentValue.replace(expression, ""), value).trim();
 
@@ -335,7 +355,7 @@ const naturalizeOptionTitle = (value: string) => {
 };
 
 const buildCandidateTitle = (value: string) => {
-  const cleaned = cleanCandidate(value);
+  const cleaned = cleanDisplayText(cleanCandidate(value));
   const withoutContext = removeOptionContextTail(removeWhyClause(cleaned));
   const withoutSubjectLead = withoutContext
     .replace(/^(?:i\s+(?:could|can|should|might|will|would)\s+|i\s+want\s+to\s+|i\s+need\s+to\s+)/i, "")
@@ -692,7 +712,7 @@ const buildTradeoffHint = (sourceText: string, candidateTexts: string[]) => {
 };
 
 const buildDecisionGroupLabel = (candidateTexts: string[], sourceText: string) => {
-  const titles = candidateTexts.map(buildCandidateTitle);
+  const titles = candidateTexts.map(buildCandidateTitle).map(cleanDisplayText);
   if (titles.length <= 1) {
     return titles[0] ?? "This decision";
   }
@@ -1458,10 +1478,11 @@ const buildDecisionLabel = (
   }
 
   if (activeDecisionGroup?.label) {
-    return activeDecisionGroup.label.includes("?") ? activeDecisionGroup.label : `${activeDecisionGroup.label}?`;
+    const cleanedLabel = cleanDisplayText(activeDecisionGroup.label);
+    return cleanedLabel.includes("?") ? cleanedLabel : `${cleanedLabel}?`;
   }
 
-  const titles = candidateTexts.map(buildCandidateTitle);
+  const titles = candidateTexts.map(buildCandidateTitle).map(cleanDisplayText);
   const tradeoffHint = buildTradeoffHint(candidateTexts.join(" "), candidateTexts);
 
   if (titles.length === 2) {
@@ -1496,6 +1517,8 @@ const finalizeAnalysis = (
   narrowedFromCount?: number,
   selectedId?: string,
   options?: {
+    source?: "ai" | "fallback";
+    structuredCleanup?: AiCleanupResult;
     candidateRelationship?: ClarityCandidateRelationship;
     decisionGroups?: ClarityDecisionGroup[];
     activeDecisionGroupId?: string;
@@ -1549,6 +1572,7 @@ const finalizeAnalysis = (
 
   return {
     rawInput,
+    source: options?.source ?? "fallback",
     mode,
     decisionShape,
     decisionGate,
@@ -1575,6 +1599,7 @@ const finalizeAnalysis = (
     decisionGroups,
     activeDecisionGroupId,
     narrowedFromCount,
+    structuredCleanup: options?.structuredCleanup,
   };
 };
 
@@ -1669,6 +1694,8 @@ export const analyzeStructuredClarityInput = (
     undefined,
     undefined,
     {
+      source: "ai",
+      structuredCleanup: cleanup,
       candidateRelationship,
       decisionGroups,
       activeDecisionGroupId: analysisDecisionGroup?.id,
@@ -1696,6 +1723,7 @@ export const analyzeClarityInput = (rawInput: string, selectedDecisionGroupId?: 
     const safeFallback = buildCandidate("Clarify the concrete action options", 0, contextSignals);
 
     return finalizeAnalysis(normalizedInput, "fog", [safeFallback], undefined, undefined, {
+      source: "fallback",
       candidateRelationship: "tasks",
       decisionGroups,
       activeDecisionGroupId: analysisDecisionGroup?.id,
@@ -1731,6 +1759,7 @@ export const analyzeClarityInput = (rawInput: string, selectedDecisionGroupId?: 
     extractedCandidates.length > compareCandidates.length ? extractedCandidates.length : undefined,
     undefined,
     {
+      source: "fallback",
       candidateRelationship,
       decisionGroups,
       activeDecisionGroupId: analysisDecisionGroup?.id,
@@ -1743,7 +1772,10 @@ export const analyzeClarityInput = (rawInput: string, selectedDecisionGroupId?: 
 export const focusClarityDecisionGroup = (
   analysis: ClarityAnalysis,
   decisionGroupId: string
-): ClarityAnalysis => analyzeClarityInput(analysis.rawInput, decisionGroupId);
+): ClarityAnalysis =>
+  analysis.source === "ai" && analysis.structuredCleanup
+    ? analyzeStructuredClarityInput(analysis.rawInput, analysis.structuredCleanup, decisionGroupId)
+    : analyzeClarityInput(analysis.rawInput, decisionGroupId);
 
 export const answerClarityQuestion = (
   analysis: ClarityAnalysis,
@@ -1806,6 +1838,8 @@ export const answerClarityQuestion = (
     analysis.narrowedFromCount,
     selectedCandidateId,
     {
+      source: analysis.source,
+      structuredCleanup: analysis.structuredCleanup,
       candidateRelationship: analysis.candidateRelationship,
       decisionGroups: analysis.decisionGroups,
       activeDecisionGroupId: analysis.activeDecisionGroupId,

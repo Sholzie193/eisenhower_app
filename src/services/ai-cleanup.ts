@@ -125,7 +125,7 @@ const stripBinaryContextTail = (value: string) =>
 const stripAiMetaLead = (value: string) =>
   value
     .replace(
-      /^(?:the real options are|real options are|the options are|actually handle first|actually do first|handle first|do first|what should (?:i\s+)?actually do first(?:,?\s*what should come second,?\s*and?\s*what can wait)?|what should come second|what can wait|what should wait|what to do (?:now|next|first)|best first option|other options|decision)\s*[:,-]?\s*/i,
+      /^(?:the real options are|real options are|the options are|actually handle first|actually do first|handle first|do first|what should (?:i\s+)?actually do first(?:,?\s*what should come second,?\s*and?\s*what can wait)?|what should come second|what can wait|what should wait|what to do (?:now|next|first)|which is the cleaner move|which is the clearer shape|this looks like the move|this looks like the clearer option|here(?:['’]?)s the cleaner option|here(?:['’]?)s the clearer shape|best first option|other options|decision)\s*[:,-]?\s*/i,
       ""
     )
     .replace(/^(?:and|but|so|also|then)\s+/i, "")

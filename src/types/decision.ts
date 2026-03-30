@@ -1,3 +1,5 @@
+import type { AiCleanupResult } from "./ai-cleanup";
+
 export type Quadrant = "doNow" | "schedule" | "delegate" | "eliminate";
 
 export type DueWindow = "today" | "tomorrow" | "thisWeek" | "later" | "noDeadline";
@@ -101,6 +103,7 @@ export interface ClarityDecisionGroup {
 
 export interface ClarityAnalysis {
   rawInput: string;
+  source: "ai" | "fallback";
   mode: ClarityMode;
   decisionShape: DecisionShape;
   decisionGate: DecisionGate;
@@ -116,4 +119,5 @@ export interface ClarityAnalysis {
   decisionGroups: ClarityDecisionGroup[];
   activeDecisionGroupId?: string;
   narrowedFromCount?: number;
+  structuredCleanup?: AiCleanupResult;
 }

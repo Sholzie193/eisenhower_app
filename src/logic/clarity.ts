@@ -1,5 +1,6 @@
 import { IMPACT_AREA_LABELS } from "../constants/quadrants";
 import { evaluateTriage } from "./triage";
+import { sanitizeAiActionTitle, sanitizeAiDecisionGroupLabel } from "../services/ai-cleanup";
 import type { AiCleanupResult } from "../types/ai-cleanup";
 import type {
   ClarityAnalysis,
@@ -1612,7 +1613,7 @@ export const analyzeStructuredClarityInput = (
       id: `candidate-${index + 1}`,
       decision_group: action.decision_group || fallbackGroupId,
       details: action.details?.trim() ?? "",
-      title: action.title.trim(),
+      title: sanitizeAiActionTitle(action.title, normalizedInput),
     }))
     .filter((action) => action.title);
   const decisionGroups = cleanup.decision_groups
@@ -1623,10 +1624,16 @@ export const analyzeStructuredClarityInput = (
         return null;
       }
 
+      const sanitizedLabel = sanitizeAiDecisionGroupLabel(
+        group.label,
+        groupActions.map((action) => action.title),
+        normalizedInput
+      );
+
       return {
         id: group.id,
-        label: group.label,
-        sourceText: [group.label, ...groupActions.map((action) => action.details).filter(Boolean), ...cleanup.tradeoffs, ...cleanup.context]
+        label: sanitizedLabel,
+        sourceText: [sanitizedLabel, ...groupActions.map((action) => action.details).filter(Boolean), ...cleanup.tradeoffs, ...cleanup.context]
           .join(". ")
           .trim(),
         candidateTexts: groupActions.map((action) => action.title),

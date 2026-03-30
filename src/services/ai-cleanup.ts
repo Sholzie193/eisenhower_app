@@ -30,6 +30,9 @@ const AI_CONTEXT_ONLY_PATTERNS = [
 const AI_ACTION_VERB_PATTERNS = [
   /\b(?:call|email|send|fix|finish|rest|book|schedule|wait|reply|follow up|cold email|cold call|cold calling|clean up|cleanup|prioriti[sz]e|focus on|keep|switch|choose|pay|invoice|ship|submit|review|reach out|outreach|delegate|automate|reduce|ignore|quit|resign|sign|buy|sell|move|start|stop|eat|prepare|ask|contact)\b/i,
 ];
+const AI_OPTION_NOUN_PATTERNS = [
+  /\b(?:proposal|invoice|contract|email|website|rent|landlord|meeting|clients?|outreach|cold email|cold calling|call|rest|break)\b/i,
+];
 
 export const AI_CLEANUP_JSON_SCHEMA = {
   type: "object",
@@ -135,17 +138,92 @@ const stripTrailingConjunction = (value: string) => value.replace(/\b(?:or|and|b
 const isAiMetaLanguage = (value: string) => AI_META_PATTERNS.some((pattern) => pattern.test(value));
 const isAiContextOnly = (value: string) => AI_CONTEXT_ONLY_PATTERNS.some((pattern) => pattern.test(value));
 const hasAiActionVerb = (value: string) => AI_ACTION_VERB_PATTERNS.some((pattern) => pattern.test(value));
+const hasAiOptionNoun = (value: string) => AI_OPTION_NOUN_PATTERNS.some((pattern) => pattern.test(value));
 
-const sanitizeAiActionTitle = (value: string) => {
+const stripConditionalLead = (value: string) =>
+  value
+    .replace(/^if\s+(?:i|we)\s+/i, "")
+    .replace(/^if\s+this\s+/i, "")
+    .replace(/^(?:i|we)\s+(?:could|can|should|might|would)\s+/i, "")
+    .replace(/^(?:actually|just)\s+/i, "")
+    .trim();
+
+const stripReasonTail = (value: string) =>
+  value
+    .replace(/,\s*(?:and\s+)?delaying\b.+$/i, "")
+    .replace(/,\s*(?:and\s+)?(?:i|we|it|this|that)\s+(?:may|might|could|would|will)\b.+$/i, "")
+    .replace(/\s+\band delaying\b.+$/i, "")
+    .replace(/\s+\bwhich\b.+$/i, "")
+    .replace(/\s+\bthat\b.+$/i, "")
+    .replace(/\s+\bso\b.+$/i, "")
+    .trim();
+
+const inferSendObjectFromContext = (rawInput: string) => {
+  const normalized = rawInput.toLowerCase();
+
+  if (/\bproposal\b/.test(normalized)) {
+    const clientTarget = normalized.match(/\b(?:to|for)\s+(?:a\s+)?(us|american|dubai|uk|eu|local|international)\s+client\b/i);
+    if (clientTarget) {
+      const region = clientTarget[1].toUpperCase() === "US" ? "US" : toSentenceCase(clientTarget[1].toLowerCase());
+      return `proposal to ${region} client`;
+    }
+
+    return "proposal";
+  }
+
+  if (/\binvoice\b/.test(normalized)) {
+    return "invoice";
+  }
+
+  if (/\bcontract\b/.test(normalized)) {
+    return "contract";
+  }
+
+  if (/\bemail\b/.test(normalized)) {
+    return "email";
+  }
+
+  return "";
+};
+
+const resolveImplicitActionObject = (value: string, rawInput: string) => {
+  let nextValue = value;
+  const inferredSendObject = inferSendObjectFromContext(rawInput);
+
+  if (inferredSendObject) {
+    nextValue = nextValue
+      .replace(/\bsend it\b/i, `send ${inferredSendObject}`)
+      .replace(/\bsend this\b/i, `send ${inferredSendObject}`);
+  }
+
+  if (/\breach out\b/i.test(nextValue) && /\brent timing\b/i.test(rawInput.toLowerCase())) {
+    nextValue = nextValue.replace(/\breach out\b/i, "reach out about rent timing");
+  }
+
+  return nextValue
+    .replace(/\breach out soon about\b/i, "reach out about")
+    .replace(/\breach out soon\b/i, "reach out")
+    .replace(/\bcontact soon\b/i, "contact")
+    .trim();
+};
+
+export const sanitizeAiActionTitle = (value: string, rawInput = "") => {
   const sanitized = stripTrailingConjunction(
-    stripAiContextTail(stripBinaryLead(stripAiMetaLead(value.replace(/[.?!]+$/g, "").replace(/\s+/g, " ").trim())))
+    stripReasonTail(
+      stripAiContextTail(
+        resolveImplicitActionObject(
+          stripConditionalLead(stripBinaryLead(stripAiMetaLead(value.replace(/[.?!]+$/g, "").replace(/\s+/g, " ").trim()))),
+          rawInput
+        )
+      )
+    )
   );
 
   if (!sanitized || isAiMetaLanguage(sanitized) || isAiContextOnly(sanitized)) {
     return "";
   }
 
-  if (!hasAiActionVerb(sanitized) && !/\b(?:clients?|email|calling|outreach|proposal|website|invoice|landlord|meeting|rest|break)\b/i.test(sanitized)) {
+  if (!hasAiActionVerb(sanitized) && !hasAiOptionNoun(sanitized)) {
     return "";
   }
 
@@ -174,13 +252,33 @@ const buildDecisionGroupLabelFromActions = (titles: string[]) => {
   return `${titles.slice(0, 2).join(", ")}, and ${titles[2]}`;
 };
 
-const sanitizeAiDecisionGroupLabel = (value: string) => {
+const shouldRebuildDecisionGroupLabel = (value: string) =>
+  !value ||
+  isAiMetaLanguage(value) ||
+  isAiContextOnly(value) ||
+  /,\s*(?:and\s+)?(?:i|we|it|this|that)\s+(?:may|might|could|would|will)\b/i.test(value) ||
+  /\bdelaying\b/i.test(value) ||
+  /\b(?:because|which|that)\b/i.test(value) ||
+  value.split(/\s+/).length > 10;
+
+export const sanitizeAiDecisionGroupLabel = (
+  value: string,
+  actionTitles: string[],
+  rawInput = ""
+) => {
   const sanitized = stripTrailingConjunction(
-    stripAiContextTail(stripBinaryLead(stripAiMetaLead(value.replace(/[.?!]+$/g, "").replace(/\s+/g, " ").trim())))
+    stripReasonTail(
+      stripAiContextTail(
+        resolveImplicitActionObject(
+          stripConditionalLead(stripBinaryLead(stripAiMetaLead(value.replace(/[.?!]+$/g, "").replace(/\s+/g, " ").trim()))),
+          rawInput
+        )
+      )
+    )
   );
 
-  if (!sanitized || isAiMetaLanguage(sanitized) || isAiContextOnly(sanitized)) {
-    return "";
+  if (shouldRebuildDecisionGroupLabel(sanitized)) {
+    return buildDecisionGroupLabelFromActions(actionTitles);
   }
 
   return toSentenceCase(sanitized);
@@ -287,7 +385,7 @@ const isAiCleanupResult = (value: unknown): value is AiCleanupResult => {
   return true;
 };
 
-const normalizeAiCleanupResult = (value: unknown): AiCleanupResult | null => {
+const normalizeAiCleanupResult = (value: unknown, rawInput = ""): AiCleanupResult | null => {
   if (!isAiCleanupResult(value)) {
     return null;
   }
@@ -301,7 +399,7 @@ const normalizeAiCleanupResult = (value: unknown): AiCleanupResult | null => {
         typeof action.decision_group === "string"
     )
     .map((action) => ({
-      title: sanitizeAiActionTitle(action.title),
+      title: sanitizeAiActionTitle(action.title, rawInput),
       details: typeof action.details === "string" ? action.details.trim() : "",
       decision_group: action.decision_group.trim(),
     }))
@@ -317,10 +415,17 @@ const normalizeAiCleanupResult = (value: unknown): AiCleanupResult | null => {
         typeof group.id === "string" &&
         typeof group.label === "string"
     )
-    .map((group) => ({
-      id: group.id.trim(),
-      label: sanitizeAiDecisionGroupLabel(group.label),
-    }))
+    .map((group) => {
+      const groupId = group.id.trim();
+      const groupActionTitles = actions
+        .filter((action) => action.decision_group === groupId)
+        .map((action) => action.title);
+
+      return {
+        id: groupId,
+        label: sanitizeAiDecisionGroupLabel(group.label, groupActionTitles, rawInput),
+      };
+    })
     .filter((group) => group.id && actionGroups.includes(group.id))
     .slice(0, 6);
 
@@ -411,7 +516,7 @@ export const cleanupClarityInputWithAi = async (rawInput: string): Promise<AiCle
       return null;
     }
 
-    return binaryCleanup ?? normalizeAiCleanupResult(JSON.parse(content));
+    return binaryCleanup ?? normalizeAiCleanupResult(JSON.parse(content), rawInput);
   } catch {
     return binaryCleanup;
   }

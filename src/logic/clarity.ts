@@ -613,6 +613,26 @@ const splitDecisionSegments = (rawInput: string) =>
     .map((segment) => segment.trim())
     .filter(Boolean);
 
+const NUMBERED_SEGMENT_LEAD = /^(?:one|two|three|four|five|1|2|3|4|5)[.:]\s*/i;
+
+const splitEnumeratedSegments = (rawInput: string) => {
+  const normalized = rawInput.replace(/[•·]/g, "\n").replace(/\s+/g, " ").trim();
+  const matches = [
+    ...normalized.matchAll(
+      /(?:^|\s)((?:one|two|three|four|five|1|2|3|4|5)[.:]\s+.*?)(?=(?:\s(?:one|two|three|four|five|1|2|3|4|5)[.:]\s+)|$)/gis
+    ),
+  ];
+
+  if (!matches.length) {
+    return [];
+  }
+
+  return matches
+    .map((match) => match[1]?.trim() ?? "")
+    .map((segment) => segment.replace(NUMBERED_SEGMENT_LEAD, "").trim())
+    .filter(Boolean);
+};
+
 const looksLikeDecisionLead = (value: string) =>
   /^(?:also\s+)?(?:should i|do i|whether to|i(?:['’]m| am)\s+(?:also\s+)?(?:still\s+)?(?:trying to\s+)?decid(?:e|ing)|need to\s+(?:still\s+)?decide whether)/i.test(
     value.trim()
@@ -743,6 +763,15 @@ const normalizeActionClause = (value: string) => {
 };
 
 const extractActionClauses = (rawInput: string) => {
+  const enumeratedClauses = splitEnumeratedSegments(rawInput)
+    .map((segment) => sanitizeAiActionTitle(segment, rawInput) || normalizeActionClause(segment))
+    .filter((clause) => clause.length > 2)
+    .filter((clause) => !isMetaLanguage(clause) && !isContextOnlyFragment(clause));
+
+  if (enumeratedClauses.length > 1) {
+    return filterEligibleCandidates(enumeratedClauses, rawInput, inferCandidateRelationship(rawInput, enumeratedClauses));
+  }
+
   const clauses = splitActionClauses(rawInput);
   const actionClauses = clauses
     .flatMap(splitActionListClause)
@@ -955,6 +984,20 @@ const pickPrimaryDecisionGroup = (decisionGroups: ClarityDecisionGroup[]) =>
   [...decisionGroups].sort((left, right) => scoreDecisionGroup(right) - scoreDecisionGroup(left))[0];
 
 const extractCandidateTexts = (rawInput: string) => {
+  const enumeratedCandidates = splitEnumeratedSegments(rawInput)
+    .map((segment) => sanitizeAiActionTitle(segment, rawInput) || buildCandidateTitle(normalizeActionClause(segment)))
+    .filter((value) => value.length > 2);
+  const enumeratedRelationship = inferCandidateRelationship(rawInput, enumeratedCandidates);
+  const eligibleEnumeratedCandidates = filterEligibleCandidates(
+    enumeratedCandidates,
+    rawInput,
+    enumeratedRelationship
+  );
+
+  if (eligibleEnumeratedCandidates.length > 1) {
+    return eligibleEnumeratedCandidates;
+  }
+
   const binaryOptions = extractBinaryOptionTexts(rawInput);
   if (binaryOptions) {
     return binaryOptions;
@@ -1852,7 +1895,7 @@ export const createClarityFailureAnalysis = (
 ): ClarityAnalysis => ({
   status: "failed",
   rawInput,
-  source: "ai",
+  source: "local",
   mode: "fog",
   decisionShape: "foggy_dump",
   decisionGate: "careful",
@@ -1878,7 +1921,7 @@ const finalizeAnalysis = (
   narrowedFromCount?: number,
   selectedId?: string,
   options?: {
-    source?: "ai";
+    source?: "ai" | "local";
     structuredCleanup?: AiCleanupResult;
     candidateRelationship?: ClarityCandidateRelationship;
     decisionGroups?: ClarityDecisionGroup[];
@@ -1951,7 +1994,7 @@ const finalizeAnalysis = (
   return {
     status: "ready",
     rawInput,
-    source: "ai",
+    source: options?.source ?? "local",
     mode,
     decisionShape,
     decisionGate,
@@ -2021,82 +2064,74 @@ const alignBestMoveCandidate = (
 
 export const analyzeStructuredClarityInput = (
   rawInput: string,
-  cleanup: AiCleanupResult
+  cleanup: AiCleanupResult,
+  selectedDecisionGroupId?: string
 ): ClarityAnalysis => {
   const normalizedInput = rawInput.replace(/\s+/g, " ").trim();
-  const boardTitles = dedupeItems([
-    cleanup.best_next_move,
-    ...cleanup.considered_items,
-    ...cleanup.still_in_play,
-    ...cleanup.what_can_wait,
-  ]);
-  const contextSignals = extractContextSignals([normalizedInput, ...cleanup.context_notes].join(". "));
-  const builtCandidates = boardTitles.map((title, index) =>
-    buildCandidate(title, index, getAiBoardCandidateSignals(title))
-  );
+  const decisionGroups: ClarityDecisionGroup[] = (cleanup.decision_groups ?? [])
+    .map((group) => {
+      const candidateTexts = dedupeItems((group.items ?? []).map((item) => cleanCandidate(item)).filter(Boolean));
+      if (!candidateTexts.length) {
+        return null;
+      }
 
-  if (!builtCandidates.length) {
+      return {
+        id: group.id,
+        label: cleanDisplayText(group.label || buildDecisionGroupLabel(candidateTexts, candidateTexts.join(", "))),
+        sourceText: candidateTexts.join(". "),
+        candidateTexts,
+        candidateRelationship: group.candidate_relationship,
+      };
+    })
+    .filter((group): group is ClarityDecisionGroup => Boolean(group));
+  const activeDecisionGroup =
+    decisionGroups.find((group) => group.id === selectedDecisionGroupId) ??
+    (decisionGroups.length > 1 ? pickPrimaryDecisionGroup(decisionGroups) : decisionGroups[0]);
+  const scopedSourceText = activeDecisionGroup?.sourceText ?? normalizedInput;
+  const contextSignals = extractContextSignals([normalizedInput, ...cleanup.context_notes].join(". "));
+  const primaryCandidateTexts = activeDecisionGroup?.candidateTexts.length
+    ? activeDecisionGroup.candidateTexts
+    : cleanup.considered_items;
+  const fallbackActionTexts = extractActionClauses(scopedSourceText);
+  const candidateTexts = dedupeItems(
+    mergeMissingActionTexts(primaryCandidateTexts, fallbackActionTexts)
+  ).slice(0, 5);
+
+  if (!candidateTexts.length) {
     return createClarityFailureAnalysis(
       normalizedInput,
       "I couldn't get a reliable Clarity read from that yet.",
       "Try again with the same input, or switch to the manual breakdown if you want a deterministic read."
     );
   }
+  const builtCandidates = candidateTexts.map((title, index) =>
+    buildCandidate(title, index, getAiBoardCandidateSignals([title, ...cleanup.context_notes].join(". ")))
+  );
+  const allExtractedTitles = dedupeItems([
+    ...cleanup.considered_items,
+    ...decisionGroups.flatMap((group) => group.candidateTexts),
+    ...fallbackActionTexts,
+  ]);
+  const narrowedFromCount = allExtractedTitles.length > candidateTexts.length ? allExtractedTitles.length : undefined;
+  const candidateRelationship =
+    activeDecisionGroup?.candidateRelationship ??
+    inferCandidateRelationship(scopedSourceText, candidateTexts);
+  const mode: ClarityMode =
+    candidateTexts.length <= 1
+      ? "single"
+      : candidateRelationship === "alternatives" && candidateTexts.length === 2
+        ? "compare"
+        : "fog";
 
-  const candidateMap = new Map(
-    builtCandidates.map((candidate) => [candidate.title.trim().toLowerCase(), candidate] as const)
-  );
-  const firstMove: ClarityCandidate =
-    candidateMap.get(cleanup.best_next_move.trim().toLowerCase()) ??
-    builtCandidates.find((candidate) => candidate.title.trim().toLowerCase() === boardTitles[0]?.trim().toLowerCase()) ??
-    builtCandidates[0];
-  const stillInPlay = cleanup.still_in_play
-    .map((title) => candidateMap.get(title.trim().toLowerCase()))
-    .filter((candidate): candidate is ClarityCandidate => Boolean(candidate))
-    .filter((candidate) => candidate.id !== firstMove.id);
-  const whatCanWait = cleanup.what_can_wait
-    .map((title) => candidateMap.get(title.trim().toLowerCase()))
-    .filter((candidate): candidate is ClarityCandidate => Boolean(candidate))
-    .filter((candidate) => candidate.id !== firstMove.id && !stillInPlay.some((entry) => entry.id === candidate.id));
-  const remainingCandidates = builtCandidates.filter(
-    (candidate) =>
-      candidate.id !== firstMove.id &&
-      !stillInPlay.some((entry) => entry.id === candidate.id) &&
-      !whatCanWait.some((entry) => entry.id === candidate.id)
-  );
-  const orderedCandidates = [firstMove, ...stillInPlay, ...remainingCandidates, ...whatCanWait].filter(
-    (candidate, index, list) => list.findIndex((entry) => entry.id === candidate.id) === index
-  );
-  const activeItems = [...stillInPlay, ...remainingCandidates].filter(
-    (candidate, index, list) => list.findIndex((entry) => entry.id === candidate.id) === index
-  );
-  const laterItems = whatCanWait;
-  const decisionShape: DecisionShape =
-    orderedCandidates.length <= 1 ? "single_action" : orderedCandidates.length === 2 ? "option_choice" : "foggy_dump";
-  const alignedFirstMove = alignBestMoveCandidate(firstMove, cleanup.why_first, contextSignals);
-
-  return {
-    status: "ready",
-    rawInput: normalizedInput,
+  return finalizeAnalysis(normalizedInput, mode, builtCandidates, narrowedFromCount, undefined, {
     source: "ai",
-    mode: orderedCandidates.length <= 1 ? "single" : "fog",
-    decisionShape,
-    decisionGate: orderedCandidates.length <= 2 ? "fast" : "moderate",
-    contextKinds: contextSignals.map((signal) => signal.kind),
-    contextHints: cleanup.context_notes,
-    summary: "The app kept the full board in view, then narrowed to the clearest next move.",
-    firstMove: alignedFirstMove,
-    candidates: orderedCandidates.map((candidate) =>
-      candidate.id === firstMove.id ? alignedFirstMove : candidate
-    ),
-    activeItems,
-    laterItems,
-    waiting: laterItems,
-    question: null,
-    candidateRelationship: decisionShape === "option_choice" ? "alternatives" : "tasks",
-    decisionGroups: [],
     structuredCleanup: cleanup,
-  };
+    candidateRelationship,
+    decisionGroups,
+    activeDecisionGroupId: activeDecisionGroup?.id,
+    contextSignals,
+    decisionLabelTexts: activeDecisionGroup?.candidateTexts ?? candidateTexts,
+  });
 };
 
 export const analyzeClarityInput = (rawInput: string, selectedDecisionGroupId?: string): ClarityAnalysis => {
@@ -2149,7 +2184,7 @@ export const analyzeClarityInput = (rawInput: string, selectedDecisionGroupId?: 
         : "fog";
 
   return finalizeAnalysis(normalizedInput, mode, candidates, narrowedFromCount, undefined, {
-    source: "ai",
+    source: "local",
     candidateRelationship,
     decisionGroups,
     activeDecisionGroupId: activeDecisionGroup?.id,

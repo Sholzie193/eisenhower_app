@@ -1,11 +1,11 @@
 export interface AiCleanupResult {
   considered_items: string[];
-  best_next_move: string;
-  why_first: string;
-  still_in_play: string[];
-  what_can_wait: string[];
   context_notes: string[];
   decision_type?: "single_task" | "option_choice" | "multiple_decisions" | "foggy_dump";
+  best_next_move?: string;
+  why_first?: string;
+  still_in_play?: string[];
+  what_can_wait?: string[];
   summary?: {
     situation: string;
     primary_recommendation: string;
@@ -29,7 +29,12 @@ export interface AiCleanupResult {
   }>;
   context?: string[];
   tradeoffs?: string[];
-  decision_groups?: Array<{ id: string; label: string }>;
+  decision_groups?: Array<{
+    id: string;
+    label: string;
+    items: string[];
+    candidate_relationship: "tasks" | "alternatives";
+  }>;
   presentation?: {
     show_now: string[];
     show_next: string[];

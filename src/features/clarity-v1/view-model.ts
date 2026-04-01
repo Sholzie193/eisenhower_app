@@ -160,43 +160,21 @@ export const buildClarityV1Analysis = (
   rawInput: string,
   result: ClarityV1Result
 ): ClarityAnalysis => {
-  const boardTitles = dedupeStrings([
-    result.best_next_move,
-    ...result.considered_items,
-    ...result.still_in_play,
-    ...result.what_can_wait,
-  ]).slice(0, 5);
+  const boardTitles = dedupeStrings(result.considered_items).slice(0, 5);
 
   if (!boardTitles.length) {
     return createClarityV1Failure(rawInput);
   }
 
-  const bestTitle = result.best_next_move || boardTitles[0];
-  const stillTitles = dedupeStrings(
-    result.still_in_play.filter((item) => item.trim().toLowerCase() !== bestTitle.trim().toLowerCase())
-  ).slice(0, 3);
-  const waitTitles = dedupeStrings(
-    result.what_can_wait.filter(
-      (item) =>
-        item.trim().toLowerCase() !== bestTitle.trim().toLowerCase() &&
-        !stillTitles.some((entry) => entry.trim().toLowerCase() === item.trim().toLowerCase())
-    )
-  ).slice(0, 3);
-  const remainingTitles = boardTitles.filter(
-    (item) =>
-      item.trim().toLowerCase() !== bestTitle.trim().toLowerCase() &&
-      !stillTitles.some((entry) => entry.trim().toLowerCase() === item.trim().toLowerCase()) &&
-      !waitTitles.some((entry) => entry.trim().toLowerCase() === item.trim().toLowerCase())
-  );
-  const mergedStillTitles = dedupeStrings([...stillTitles, ...remainingTitles]).slice(0, 3);
-  const orderedTitles = [bestTitle, ...mergedStillTitles, ...waitTitles];
+  const bestTitle = boardTitles[0];
+  const orderedTitles = boardTitles;
 
   const candidates = orderedTitles.map((title, index) =>
     createCandidate(
       title,
-      index === 0 ? "best" : waitTitles.some((item) => item.trim().toLowerCase() === title.trim().toLowerCase()) ? "wait" : "still",
+      index === 0 ? "best" : "still",
       index,
-      index === 0 ? result.why_first : ""
+      index === 0 ? result.why_first ?? "" : ""
     )
   );
 
@@ -210,15 +188,11 @@ export const buildClarityV1Analysis = (
     decisionGate: candidates.length <= 2 ? "fast" : "moderate",
     contextKinds: [],
     contextHints: result.context_notes,
-    summary: "I kept the whole situation in view, then narrowed to the clearest next move.",
+    summary: "I split the input into the real tasks or dilemmas, then passed them to the app logic.",
     firstMove: candidates[0] ?? null,
     candidates,
-    activeItems: candidates.slice(1).filter((candidate) =>
-      mergedStillTitles.some((title) => title.trim().toLowerCase() === candidate.title.trim().toLowerCase())
-    ),
-    laterItems: candidates.slice(1).filter((candidate) =>
-      waitTitles.some((title) => title.trim().toLowerCase() === candidate.title.trim().toLowerCase())
-    ),
+    activeItems: candidates.slice(1),
+    laterItems: [],
     waiting: candidates.slice(1),
     question: null,
     candidateRelationship: candidates.length === 2 ? "alternatives" : "tasks",

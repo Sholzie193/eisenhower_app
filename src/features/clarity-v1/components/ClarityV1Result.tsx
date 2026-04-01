@@ -55,9 +55,9 @@ export function ClarityV1Result() {
         </View>
 
         <NeuCard style={styles.sectionCard}>
-          <Text style={[styles.label, { color: theme.colors.textSoft }]}>Clarity needs a reliable AI read</Text>
+          <Text style={[styles.label, { color: theme.colors.textSoft }]}>Clarity needs a cleaner signal</Text>
           <Text style={[styles.body, { color: theme.colors.textMuted }]}>
-            The app did not get a structured result it trusts, so it is not showing a guessed recommendation.
+            The app could not turn this into a stable task board yet, so it is not showing a guessed recommendation.
           </Text>
         </NeuCard>
 

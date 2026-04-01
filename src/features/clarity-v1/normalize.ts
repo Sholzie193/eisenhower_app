@@ -131,7 +131,7 @@ const isPayloadLike = (value: unknown): value is Record<string, unknown> => {
   }
 
   const payload = value as Record<string, unknown>;
-  return Array.isArray(payload.considered_items) || typeof payload.best_next_move === "string";
+  return Array.isArray(payload.considered_items) || Array.isArray(payload.decision_groups);
 };
 
 export const normalizeClarityV1Result = (value: unknown): ClarityV1Result | null => {
@@ -141,46 +141,74 @@ export const normalizeClarityV1Result = (value: unknown): ClarityV1Result | null
 
   const payload = value as Record<string, unknown>;
   const toUsableItem = (entry: string) => sanitizeItem(entry) || salvageItem(entry);
-  const bestNextMove = toUsableItem(typeof payload.best_next_move === "string" ? payload.best_next_move : "");
   const considered = dedupeStrings(
-    trimStringArray(payload.considered_items, 5).map(toUsableItem).filter(Boolean)
-  ).slice(0, 5);
-  const explicitStill = dedupeStrings(
-    trimStringArray(payload.still_in_play, 3)
-      .map(toUsableItem)
-      .filter((item) => item && item.toLowerCase() !== bestNextMove.toLowerCase())
-  ).slice(0, 3);
-  const explicitWait = dedupeStrings(
-    trimStringArray(payload.what_can_wait, 3)
-      .map(toUsableItem)
-      .filter(
-        (item) =>
-          item &&
-          item.toLowerCase() !== bestNextMove.toLowerCase() &&
-          !explicitStill.some((entry) => entry.toLowerCase() === item.toLowerCase())
-      )
-  ).slice(0, 3);
+    trimStringArray(payload.considered_items, 8).map(toUsableItem).filter(Boolean)
+  ).slice(0, 8);
   const contextNotes = dedupeStrings(
     trimStringArray(payload.context_notes, 5).map(sanitizeContextNote).filter(Boolean)
   ).slice(0, 5);
-  const fullBoard = dedupeStrings([bestNextMove, ...considered, ...explicitStill, ...explicitWait].filter(Boolean)).slice(0, 5);
-  const nextMove = bestNextMove || fullBoard[0] || "";
+  const decisionType =
+    payload.decision_type === "single_task" ||
+    payload.decision_type === "option_choice" ||
+    payload.decision_type === "multiple_decisions" ||
+    payload.decision_type === "foggy_dump"
+      ? payload.decision_type
+      : undefined;
+  const decisionGroups = Array.isArray(payload.decision_groups)
+    ? payload.decision_groups
+        .map((group, index) => {
+          if (!group || typeof group !== "object") {
+            return null;
+          }
 
-  if (!nextMove || !fullBoard.length) {
+          const maybeGroup = group as Record<string, unknown>;
+          const items = dedupeStrings(
+            trimStringArray(maybeGroup.items, 4).map(toUsableItem).filter(Boolean)
+          ).slice(0, 4);
+          const relationship =
+            maybeGroup.candidate_relationship === "alternatives" ? "alternatives" : "tasks";
+          const rawLabel = typeof maybeGroup.label === "string" ? maybeGroup.label : "";
+          const label = sanitizeContextNote(rawLabel) || `Decision ${index + 1}`;
+          const id =
+            typeof maybeGroup.id === "string" && maybeGroup.id.trim()
+              ? maybeGroup.id.trim()
+              : `decision-group-${index + 1}`;
+
+          if (!items.length) {
+            return null;
+          }
+
+          return {
+            id,
+            label,
+            items,
+            candidate_relationship: relationship,
+          };
+        })
+        .filter(
+          (
+            group
+          ): group is {
+            id: string;
+            label: string;
+            items: string[];
+            candidate_relationship: "tasks" | "alternatives";
+          } => Boolean(group)
+        )
+    : [];
+  const fullBoard = dedupeStrings([
+    ...considered,
+    ...decisionGroups.flatMap((group) => group.items),
+  ]).slice(0, 8);
+
+  if (!fullBoard.length) {
     return null;
   }
 
-  const remaining = fullBoard.filter((item) => item.toLowerCase() !== nextMove.toLowerCase());
-  const stillInPlay = dedupeStrings([...explicitStill, ...remaining.filter((item) => !explicitWait.some((entry) => entry.toLowerCase() === item.toLowerCase()))]).slice(0, 3);
-  const whatCanWait = dedupeStrings([...explicitWait, ...remaining.filter((item) => !stillInPlay.some((entry) => entry.toLowerCase() === item.toLowerCase())).slice(0, 3)]).slice(0, 3);
-  const whyFirst = sanitizeWhyFirst(typeof payload.why_first === "string" ? payload.why_first : "");
-
   return {
     considered_items: fullBoard,
-    best_next_move: nextMove,
-    why_first: whyFirst || "This has the clearest mix of pressure, payoff, and fit right now.",
-    still_in_play: stillInPlay,
-    what_can_wait: whatCanWait,
     context_notes: contextNotes,
+    ...(decisionType ? { decision_type: decisionType } : {}),
+    ...(decisionGroups.length ? { decision_groups: decisionGroups } : {}),
   };
 };

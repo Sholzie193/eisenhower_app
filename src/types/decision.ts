@@ -104,7 +104,7 @@ export interface ClarityDecisionGroup {
 export interface ClarityAnalysis {
   status: "ready" | "failed";
   rawInput: string;
-  source: "ai";
+  source: "ai" | "local";
   mode: ClarityMode;
   decisionShape: DecisionShape;
   decisionGate: DecisionGate;

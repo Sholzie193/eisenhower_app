@@ -806,6 +806,110 @@ const mergeMissingActionTexts = (primaryActionTexts: string[], fallbackActionTex
   return merged;
 };
 
+const ACTION_SIGNATURE_VERBS: Array<{ expression: RegExp; token: string }> = [
+  { expression: /\breply\b/i, token: "reply" },
+  { expression: /\bfollow up\b/i, token: "followup" },
+  { expression: /\bsend\b/i, token: "send" },
+  { expression: /\bcall\b/i, token: "call" },
+  { expression: /\bmessage\b/i, token: "message" },
+  { expression: /\bemail\b/i, token: "email" },
+  { expression: /\breach out\b/i, token: "contact" },
+  { expression: /\bcontact\b/i, token: "contact" },
+  { expression: /\bfix\b/i, token: "fix" },
+  { expression: /\brest\b/i, token: "rest" },
+  { expression: /\binvoice\b/i, token: "invoice" },
+];
+
+const ACTION_SIGNATURE_OBJECTS: Array<{ expression: RegExp; token: string }> = [
+  { expression: /\bclient\b/i, token: "client" },
+  { expression: /\blead\b/i, token: "lead" },
+  { expression: /\bproposal\b/i, token: "proposal" },
+  { expression: /\binvoice\b/i, token: "invoice" },
+  { expression: /\blandlord\b/i, token: "landlord" },
+  { expression: /\brent\b/i, token: "rent" },
+  { expression: /\bwebsite\b/i, token: "website" },
+  { expression: /\bcash flow\b/i, token: "cashflow" },
+  { expression: /\bmeeting\b/i, token: "meeting" },
+  { expression: /\bemail\b/i, token: "email" },
+];
+
+const getCandidateSignature = (value: string) => {
+  const normalized = cleanCandidate(value).toLowerCase();
+  if (!normalized) {
+    return "";
+  }
+
+  const verbs = ACTION_SIGNATURE_VERBS
+    .filter(({ expression }) => expression.test(normalized))
+    .map(({ token }) => token);
+  const objects = ACTION_SIGNATURE_OBJECTS
+    .filter(({ expression }) => expression.test(normalized))
+    .map(({ token }) => token);
+
+  if (!verbs.length && !objects.length) {
+    return "";
+  }
+
+  return [...verbs, ...objects].join("|");
+};
+
+const getCandidateSpecificityScore = (value: string) => {
+  const cleaned = cleanCandidate(value);
+  const title = buildCandidateTitle(cleaned);
+  let score = 0;
+
+  if (/^(?:reply|follow up|send|call|message|email|contact|fix|rest|invoice)\b/i.test(title)) {
+    score += 4;
+  }
+
+  if (!/[,:]/.test(title)) {
+    score += 2;
+  }
+
+  if (title.split(/\s+/).length <= 6) {
+    score += 2;
+  }
+
+  if (/\b(?:because|if|when|and if|already expects|may look|still needs|won['’]?t directly)\b/i.test(cleaned)) {
+    score -= 3;
+  }
+
+  score -= Math.min(title.length / 40, 2);
+  return score;
+};
+
+const collapseEquivalentActionTexts = (values: string[]) => {
+  const merged: string[] = [];
+  const signatureIndex = new Map<string, number>();
+
+  values.forEach((value) => {
+    const cleaned = cleanCandidate(value);
+    if (!cleaned) {
+      return;
+    }
+
+    const signature = getCandidateSignature(cleaned);
+    if (!signature) {
+      merged.push(value);
+      return;
+    }
+
+    const existingIndex = signatureIndex.get(signature);
+    if (existingIndex === undefined) {
+      signatureIndex.set(signature, merged.length);
+      merged.push(value);
+      return;
+    }
+
+    const existing = merged[existingIndex];
+    if (getCandidateSpecificityScore(cleaned) > getCandidateSpecificityScore(existing)) {
+      merged[existingIndex] = value;
+    }
+  });
+
+  return merged;
+};
+
 const countCompareScaffolds = (value: string) =>
   (value.match(/\b(?:do i|should i|whether to|decide whether to|deciding whether to|vs\.?|versus)\b/gi) ?? [])
     .length;
@@ -2096,7 +2200,7 @@ export const analyzeStructuredClarityInput = (
     : cleanup.considered_items;
   const fallbackActionTexts = extractActionClauses(scopedSourceText);
   const candidateTexts = dedupeItems(
-    mergeMissingActionTexts(primaryCandidateTexts, fallbackActionTexts)
+    collapseEquivalentActionTexts(mergeMissingActionTexts(primaryCandidateTexts, fallbackActionTexts))
   ).slice(0, 5);
 
   if (!candidateTexts.length) {
@@ -2156,7 +2260,7 @@ export const analyzeClarityInput = (rawInput: string, selectedDecisionGroupId?: 
     : extractCandidateTexts(scopedInput);
   const fallbackActionTexts = extractActionClauses(scopedInput);
   const candidateTexts = dedupeItems(
-    mergeMissingActionTexts(primaryCandidateTexts, fallbackActionTexts)
+    collapseEquivalentActionTexts(mergeMissingActionTexts(primaryCandidateTexts, fallbackActionTexts))
   ).slice(0, 5);
 
   if (!candidateTexts.length) {
@@ -2171,7 +2275,9 @@ export const analyzeClarityInput = (rawInput: string, selectedDecisionGroupId?: 
     buildCandidate(candidateText, index, contextSignals)
   );
   const totalExtractedCount = dedupeItems(
-    mergeMissingActionTexts(extractCandidateTexts(normalizedInput), extractActionClauses(normalizedInput))
+    collapseEquivalentActionTexts(
+      mergeMissingActionTexts(extractCandidateTexts(normalizedInput), extractActionClauses(normalizedInput))
+    )
   ).length;
   const narrowedFromCount = totalExtractedCount > candidateTexts.length ? totalExtractedCount : undefined;
   const mode: ClarityMode =

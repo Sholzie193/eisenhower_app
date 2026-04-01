@@ -25,7 +25,7 @@ const dedupeStrings = (values: string[]) => {
 
 const getRankLane = (candidate: ClarityCandidate, index: number) => {
   if (index === 0) {
-    return candidate.triageResult.quadrant === "doNow" ? "Next pressure point" : "Next best move";
+    return "Lead move";
   }
 
   switch (candidate.triageResult.quadrant) {
@@ -42,11 +42,13 @@ const getRankLane = (candidate: ClarityCandidate, index: number) => {
 };
 
 const getRankCopy = (candidate: ClarityCandidate, index: number) => {
+  if (index === 0) {
+    return "This leads the board right now, so it should get the first block of attention.";
+  }
+
   switch (candidate.triageResult.quadrant) {
     case "doNow":
-      return index === 0
-        ? "This is the next item to touch if you still have room after the lead move."
-        : "This still carries real downside if ignored, but it no longer deserves the first slot.";
+      return "This still carries real downside if ignored, but it no longer deserves the first slot.";
     case "schedule":
       return "This matters enough to keep, but it should follow a deliberate block instead of leading the session.";
     case "delegate":
@@ -58,7 +60,7 @@ const getRankCopy = (candidate: ClarityCandidate, index: number) => {
 };
 
 export function ClarityV1Result() {
-  const { claritySession, clearClarity, saveClarityCandidate, startDraft } = useAppData();
+  const { claritySession, clearClarity, saveClarityCandidate, saveClarityCandidates, startDraft } = useAppData();
   const { theme } = useAppTheme();
 
   if (!claritySession) {
@@ -119,7 +121,8 @@ export function ClarityV1Result() {
   ).slice(0, 8);
   const contextNotes = dedupeStrings(claritySession.structuredCleanup?.context_notes ?? claritySession.contextHints).slice(0, 3);
   const whyFirst = claritySession.structuredCleanup?.why_first || firstMove.calmingWhy;
-  const rankedAfterFirst = claritySession.candidates.filter((candidate) => candidate.id !== firstMove.id);
+  const rankedCandidates = claritySession.candidates;
+  const shouldSaveWholeBoard = rankedCandidates.length > 1;
 
   return (
     <ScreenShell>
@@ -184,11 +187,11 @@ export function ClarityV1Result() {
       <NeuCard variant="flat" style={styles.sectionCard}>
         <Text style={[styles.label, { color: theme.colors.textSoft }]}>Full order right now</Text>
         <Text style={[styles.meta, { color: theme.colors.textSoft }]}>
-          Ranked by urgency, importance, cost of delay, and energy fit after the first move.
+          Ranked by urgency, importance, cost of delay, and energy fit, with the lead move first.
         </Text>
-        {rankedAfterFirst.length ? (
+        {rankedCandidates.length ? (
           <View style={styles.rankingList}>
-            {rankedAfterFirst.map((candidate, index) => (
+            {rankedCandidates.map((candidate, index) => (
               <View
                 key={candidate.id}
                 style={[
@@ -208,7 +211,7 @@ export function ClarityV1Result() {
                     },
                   ]}
                 >
-                  <Text style={[styles.rankBadgeText, { color: theme.colors.text }]}>#{index + 2}</Text>
+                  <Text style={[styles.rankBadgeText, { color: theme.colors.text }]}>#{index + 1}</Text>
                 </View>
                 <View style={styles.rankingBody}>
                   <View style={styles.rankingTop}>
@@ -240,11 +243,18 @@ export function ClarityV1Result() {
       </NeuCard>
 
       <NeuButton
-        label="Save first move"
+        label={shouldSaveWholeBoard ? "Save ranked board" : "Save first move"}
         onPress={() => {
-          const savedId = saveClarityCandidate(firstMove, claritySession.rawInput);
+          const savedIds = shouldSaveWholeBoard
+            ? saveClarityCandidates(rankedCandidates, claritySession.rawInput)
+            : [saveClarityCandidate(firstMove, claritySession.rawInput)];
           clearClarity();
-          router.replace(`/item/${savedId}`);
+          if (shouldSaveWholeBoard) {
+            router.replace("/");
+            return;
+          }
+
+          router.replace(`/item/${savedIds[0]}`);
         }}
       />
       <NeuButton

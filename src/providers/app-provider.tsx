@@ -32,6 +32,7 @@ interface AppContextValue {
   answerClarityQuestion: (candidateId: string) => void;
   clearClarity: () => void;
   saveClarityCandidate: (candidate: ClarityCandidate, rawInput?: string) => string;
+  saveClarityCandidates: (candidates: ClarityCandidate[], rawInput?: string) => string[];
   saveDraftResult: (result: TriageResult) => string | null;
   updateItemBasics: (id: string, patch: Pick<DecisionItem, "title" | "notes" | "category">) => void;
   toggleComplete: (id: string) => void;
@@ -147,6 +148,39 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
   const clearDraft = () => setDraft(null);
   const clearClarity = () => setClaritySession(null);
 
+  const persistItems = (
+    nextItemsToCreate: Array<
+      Pick<
+        DecisionItem,
+        | "title"
+        | "notes"
+        | "category"
+        | "urgencyScore"
+        | "importanceScore"
+        | "quadrant"
+        | "triageAnswers"
+        | "recommendation"
+        | "nextStep"
+        | "explanation"
+      >
+    >
+  ) => {
+    const now = new Date().toISOString();
+    const createdItems: DecisionItem[] = nextItemsToCreate.map((nextItem) => ({
+      id: createId(),
+      createdAt: now,
+      updatedAt: now,
+      completed: false,
+      ...nextItem,
+    }));
+
+    const nextItems = [...createdItems, ...itemsRef.current];
+    itemsRef.current = nextItems;
+    setItems(nextItems);
+    triggerSuccessHaptic();
+    return createdItems.map((item) => item.id);
+  };
+
   const persistItem = (
     nextItem: Pick<
       DecisionItem,
@@ -161,22 +195,7 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
       | "nextStep"
       | "explanation"
     >
-  ) => {
-    const now = new Date().toISOString();
-    const newItem: DecisionItem = {
-      id: createId(),
-      createdAt: now,
-      updatedAt: now,
-      completed: false,
-      ...nextItem,
-    };
-
-    const nextItems = [newItem, ...itemsRef.current];
-    itemsRef.current = nextItems;
-    setItems(nextItems);
-    triggerSuccessHaptic();
-    return newItem.id;
-  };
+  ) => persistItems([nextItem])[0];
 
   const runClarity = async (rawInput: string) => {
     setDraft(null);
@@ -217,6 +236,30 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
       nextStep: candidate.triageResult.nextStep,
       explanation: candidate.triageResult.explanation,
     });
+  };
+
+  const saveClarityCandidates = (candidates: ClarityCandidate[], rawInput?: string) => {
+    if (!candidates.length) {
+      return [];
+    }
+
+    return persistItems(
+      candidates.map((candidate) => ({
+        title: candidate.title,
+        notes:
+          rawInput && rawInput.trim().toLowerCase() !== candidate.title.trim().toLowerCase()
+            ? rawInput.trim()
+            : "",
+        category: candidate.category,
+        urgencyScore: candidate.triageResult.urgencyScore,
+        importanceScore: candidate.triageResult.importanceScore,
+        quadrant: candidate.triageResult.quadrant,
+        triageAnswers: candidate.triageAnswers,
+        recommendation: candidate.triageResult.recommendation,
+        nextStep: candidate.triageResult.nextStep,
+        explanation: candidate.triageResult.explanation,
+      }))
+    );
   };
 
   const saveDraftResult = (result: TriageResult) => {
@@ -344,6 +387,7 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
         answerClarityQuestion,
         clearClarity,
         saveClarityCandidate,
+        saveClarityCandidates,
         saveDraftResult,
         updateItemBasics,
         toggleComplete,

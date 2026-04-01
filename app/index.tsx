@@ -35,6 +35,7 @@ export default function HomeScreen() {
       : activeItems.length
         ? "Nothing looks especially loud right now."
         : "Start with whatever feels most mentally present.";
+  const inputMeta = input.trim() ? `${input.trim().length} chars` : "Scrolls when long";
 
   if (!hydrated) {
     return (
@@ -55,26 +56,66 @@ export default function HomeScreen() {
       </View>
 
       <NeuCard style={styles.captureCard}>
-        <TextInput
-          value={input}
-          onChangeText={setInput}
-          placeholder="Need to call landlord, fix website, or maybe just rest."
-          placeholderTextColor={theme.colors.textSoft}
-          multiline
-          textAlignVertical="top"
+        <View
+          pointerEvents="none"
+          style={[styles.captureGlow, { backgroundColor: theme.colors.accentWash }]}
+        />
+        <View style={styles.captureHeader}>
+          <View style={styles.captureHeaderCopy}>
+            <Text style={[styles.captureKicker, { color: theme.colors.textSoft }]}>Clarity workspace</Text>
+            <Text style={[styles.captureTitle, { color: theme.colors.text }]}>Dump the full situation.</Text>
+          </View>
+          <View
+            style={[
+              styles.captureBadge,
+              {
+                backgroundColor: theme.colors.surfaceElevated,
+                borderColor: theme.colors.stroke,
+              },
+            ]}
+          >
+            <Text style={[styles.captureBadgeText, { color: theme.colors.textMuted }]}>{inputMeta}</Text>
+          </View>
+        </View>
+
+        <View
           style={[
-            styles.input,
+            styles.inputShell,
             {
-              color: theme.colors.text,
-              borderColor: theme.colors.stroke,
               backgroundColor: theme.colors.surfaceInset,
+              borderColor: theme.colors.stroke,
             },
           ]}
-        />
+        >
+          <View
+            pointerEvents="none"
+            style={[styles.inputShellShine, { backgroundColor: theme.colors.highlight }]}
+          />
+          <TextInput
+            value={input}
+            onChangeText={setInput}
+            placeholder="Need to call landlord, fix website, or maybe just rest."
+            placeholderTextColor={theme.colors.textSoft}
+            multiline
+            scrollEnabled
+            textAlignVertical="top"
+            keyboardAppearance="dark"
+            selectionColor={theme.colors.accentStrong}
+            style={[
+              styles.input,
+              {
+                color: theme.colors.text,
+              },
+            ]}
+          />
+        </View>
 
-        <Text style={[styles.helper, { color: theme.colors.textSoft }]}>
-          You do not need to organize it first. Just put it down plainly.
-        </Text>
+        <View style={styles.helperRow}>
+          <Text style={[styles.helper, { color: theme.colors.textSoft }]}>
+            Long prompts stay inside this panel. Just write it plainly.
+          </Text>
+          <Text style={[styles.helperMeta, { color: theme.colors.textSoft }]}>Phone-first capture</Text>
+        </View>
 
         <View style={styles.exampleWrap}>
           {EXAMPLE_INPUTS.map((example) => (
@@ -171,11 +212,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   content: {
-    gap: 18,
+    gap: 16,
   },
   headerBlock: {
     gap: 8,
-    paddingTop: 8,
+    paddingTop: 10,
   },
   eyebrow: {
     fontSize: 12,
@@ -198,21 +239,91 @@ const styles = StyleSheet.create({
   captureCard: {
     gap: 14,
     paddingTop: 18,
+    paddingBottom: 18,
+    position: "relative",
+  },
+  captureGlow: {
+    position: "absolute",
+    top: -26,
+    right: 18,
+    width: 136,
+    height: 136,
+    borderRadius: 999,
+    opacity: 0.65,
+  },
+  captureHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    gap: 12,
+  },
+  captureHeaderCopy: {
+    flex: 1,
+    gap: 4,
+  },
+  captureKicker: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontFamily: "IBMPlexSans_600SemiBold",
+    textTransform: "uppercase",
+    letterSpacing: 0.9,
+  },
+  captureTitle: {
+    fontSize: 21,
+    lineHeight: 25,
+    fontFamily: "SpaceGrotesk_600SemiBold",
+    maxWidth: 240,
+  },
+  captureBadge: {
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+  captureBadgeText: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontFamily: "IBMPlexSans_600SemiBold",
+    letterSpacing: 0.15,
+  },
+  inputShell: {
+    borderRadius: 24,
+    borderWidth: 1,
+    overflow: "hidden",
+  },
+  inputShellShine: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 1,
   },
   input: {
-    minHeight: 176,
-    borderRadius: 22,
-    borderWidth: 1,
+    height: 248,
     paddingHorizontal: 18,
     paddingVertical: 18,
     fontSize: 17,
     lineHeight: 25,
     fontFamily: "IBMPlexSans_500Medium",
   },
+  helperRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 12,
+  },
   helper: {
     fontSize: 13,
     lineHeight: 19,
     fontFamily: "IBMPlexSans_500Medium",
+    flex: 1,
+  },
+  helperMeta: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontFamily: "IBMPlexSans_600SemiBold",
+    textTransform: "uppercase",
+    letterSpacing: 0.6,
   },
   exampleWrap: {
     flexDirection: "row",
@@ -220,7 +331,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   exampleChip: {
-    borderRadius: 999,
+    borderRadius: 18,
     borderWidth: 1,
     paddingHorizontal: 12,
     paddingVertical: 10,
@@ -228,7 +339,7 @@ const styles = StyleSheet.create({
   },
   exampleText: {
     fontSize: 12,
-    lineHeight: 16,
+    lineHeight: 17,
     fontFamily: "IBMPlexSans_500Medium",
   },
   statusCard: {

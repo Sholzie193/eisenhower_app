@@ -1,13 +1,8 @@
 import { createContext, useContext, useEffect, useRef, useState, type PropsWithChildren } from "react";
 import { sampleItems } from "../constants/sampleData";
 import { QUADRANT_META } from "../constants/quadrants";
-import {
-  createClarityFailureAnalysis,
-  analyzeStructuredClarityInput,
-  answerClarityQuestion as answerClarityQuestionLogic,
-  focusClarityDecisionGroup as focusClarityDecisionGroupLogic,
-} from "../logic/clarity";
-import { cleanupClarityInputWithAi } from "../services/ai-cleanup";
+import { requestClarityV1 } from "../features/clarity-v1/service";
+import { analyzeClarityInput, analyzeStructuredClarityInput } from "../logic/clarity";
 import { evaluateTriage, getQuadrantGuidance } from "../logic/triage";
 import { DEFAULT_TRIAGE_ANSWERS } from "../logic/triageConfig";
 import { storage } from "../storage/storage";
@@ -186,28 +181,20 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
   const runClarity = async (rawInput: string) => {
     setDraft(null);
     const normalizedInput = rawInput.trim();
-    const aiCleanup = await cleanupClarityInputWithAi(normalizedInput);
-    const nextSession = aiCleanup
-      ? analyzeStructuredClarityInput(normalizedInput, aiCleanup)
-      : createClarityFailureAnalysis(
-          normalizedInput,
-          "I couldn't get a reliable read of this yet.",
-          "Try again in a moment, or switch to the manual breakdown if you want a deterministic read."
-        );
+    const aiResult = await requestClarityV1(normalizedInput);
+    const nextSession = aiResult
+      ? analyzeStructuredClarityInput(normalizedInput, aiResult)
+      : analyzeClarityInput(normalizedInput);
     setClaritySession(nextSession);
     return nextSession;
   };
 
   const answerClarityQuestion = (candidateId: string) => {
-    setClaritySession((currentSession) =>
-      currentSession ? answerClarityQuestionLogic(currentSession, candidateId) : currentSession
-    );
+    void candidateId;
   };
 
   const focusClarityDecisionGroup = (decisionGroupId: string) => {
-    setClaritySession((currentSession) =>
-      currentSession ? focusClarityDecisionGroupLogic(currentSession, decisionGroupId) : currentSession
-    );
+    void decisionGroupId;
   };
 
   const saveClarityCandidate = (candidate: ClarityCandidate, rawInput?: string) => {

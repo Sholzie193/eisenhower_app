@@ -6,6 +6,7 @@ import { NeuButton } from "../src/components/NeuButton";
 import { NeuCard } from "../src/components/NeuCard";
 import { QuadrantPill } from "../src/components/QuadrantPill";
 import { ScreenShell } from "../src/components/ScreenShell";
+import { ClarityV1Result } from "../src/features/clarity-v1/components/ClarityV1Result";
 import { evaluateTriage } from "../src/logic/triage";
 import { useAppData } from "../src/providers/app-provider";
 import { useAppTheme } from "../src/providers/theme-provider";
@@ -42,6 +43,18 @@ const dedupeBullets = (values: string[]) => {
   });
 };
 
+const dedupeCandidates = (values: ClarityCandidate[]) => {
+  const seen = new Set<string>();
+  return values.filter((value) => {
+    if (seen.has(value.id)) {
+      return false;
+    }
+
+    seen.add(value.id);
+    return true;
+  });
+};
+
 const joinTitles = (titles: string[]) => {
   if (!titles.length) {
     return "";
@@ -59,218 +72,108 @@ const joinTitles = (titles: string[]) => {
 };
 
 const getConsideredBoard = (analysis: ClarityAnalysis) => {
-  const rawTitles =
-    analysis.structuredCleanup?.items.map((item) => item.title.trim()).filter(Boolean) ??
-    analysis.candidates.map((candidate) => candidate.title);
+  const rawTitles = analysis.structuredCleanup?.considered_items ?? analysis.candidates.map((candidate) => candidate.title);
   const titles = dedupeBullets(rawTitles).slice(0, 5);
   const hiddenCount = Math.max(0, rawTitles.length - titles.length);
-  const context = dedupeBullets(
-    [...(analysis.structuredCleanup?.context ?? []), ...analysis.contextHints]
-      .map(stripTrailingPeriod)
-      .filter(
-        (entry) =>
-          entry &&
-          !/^still meaningful right now:/i.test(entry) &&
-          !/still matters, but it does not need to lead/i.test(entry)
-      )
-  ).slice(0, 2);
+  const context = dedupeBullets([...(analysis.structuredCleanup?.context_notes ?? []), ...analysis.contextHints]).slice(0, 2);
 
   return { titles, context, hiddenCount };
 };
 
 const getStillInPlayItems = (analysis: ClarityAnalysis) => {
-  const firstMoveId = analysis.firstMove?.id;
-  const primaryIds = new Set<string>([
-    ...(firstMoveId ? [firstMoveId] : []),
-    ...analysis.laterItems
-      .filter((candidate) => candidate.triageResult.quadrant === "delegate" || candidate.triageResult.quadrant === "eliminate")
-      .map((candidate) => candidate.id),
-  ]);
+  const stillTitles = analysis.structuredCleanup?.still_in_play ?? [];
+  const fromStructured = stillTitles
+    .map((title) =>
+      analysis.candidates.find((candidate) => candidate.title.trim().toLowerCase() === title.trim().toLowerCase())
+    )
+    .filter((candidate): candidate is ClarityCandidate => Boolean(candidate));
 
-  const items = [
-    ...analysis.activeItems,
-    ...analysis.laterItems.filter(
-      (candidate) =>
-        !primaryIds.has(candidate.id) &&
-        (candidate.triageResult.quadrant === "doNow" || candidate.triageResult.quadrant === "schedule")
-    ),
-  ];
-
-  return items.filter((candidate, index, list) => list.findIndex((entry) => entry.id === candidate.id) === index);
+  return dedupeCandidates(
+    [...fromStructured, ...analysis.activeItems].filter(
+      (candidate) => candidate.id !== analysis.firstMove?.id
+    )
+  );
 };
 
 const getCanWaitItems = (analysis: ClarityAnalysis) => {
-  const later = analysis.laterItems.filter(
-    (candidate) => candidate.triageResult.quadrant === "delegate" || candidate.triageResult.quadrant === "eliminate"
+  const waitTitles = analysis.structuredCleanup?.what_can_wait ?? [];
+  const stillIds = new Set(getStillInPlayItems(analysis).map((candidate) => candidate.id));
+  const fromStructured = waitTitles
+    .map((title) =>
+      analysis.candidates.find((candidate) => candidate.title.trim().toLowerCase() === title.trim().toLowerCase())
+    )
+    .filter((candidate): candidate is ClarityCandidate => Boolean(candidate));
+
+  return dedupeCandidates(
+    [...fromStructured, ...analysis.laterItems].filter(
+      (candidate) => candidate.id !== analysis.firstMove?.id && !stillIds.has(candidate.id)
+    )
   );
-
-  if (later.length) {
-    return later;
-  }
-
-  return analysis.laterItems;
 };
 
 const titleHas = (candidate: ClarityCandidate | null | undefined, expression: RegExp) =>
   Boolean(candidate && expression.test(candidate.title.toLowerCase()));
 
-const getConcretePressureBullets = (analysis: ClarityAnalysis) => {
-  const bullets: string[] = [];
-  const rawContext = [...(analysis.structuredCleanup?.context ?? []), ...analysis.contextHints];
-  const allCandidates = analysis.candidates;
-  const hasLowEnergy = rawContext.some((entry) =>
-    /\blow energy|energy is low|hungry|tired|exhausted|drained|burned out|burnt out\b/i.test(entry)
-  );
-  const hasTimePressure = rawContext.some((entry) =>
-    /\btime pressure|deadline|urgent|today|tomorrow|this week\b/i.test(entry)
-  );
-  const hasNoHardDeadline = rawContext.some((entry) =>
-    /\bno hard deadline|no real deadline\b/i.test(entry)
-  );
-
-  if (hasLowEnergy) {
-    bullets.push("Energy is low right now");
-  }
-
-  if (allCandidates.some((candidate) => /\blandlord|rent\b/i.test(candidate.title))) {
-    bullets.push("Rent timing is creating pressure");
-  }
-
-  if (allCandidates.some((candidate) => /\bwebsite\b/i.test(candidate.title))) {
-    bullets.push("Website still matters for credibility");
-  }
-
-  if (allCandidates.some((candidate) => /\bproposal\b/i.test(candidate.title))) {
-    bullets.push("The proposal still carries meaningful upside");
-  }
-
-  if (allCandidates.some((candidate) => /\bdubai\b/i.test(candidate.title))) {
-    bullets.push("Following up the Dubai lead could move cash sooner");
-  }
-
-  if (hasTimePressure && hasNoHardDeadline) {
-    bullets.push("This matters soon, but it is not an immediate emergency");
-  } else if (hasTimePressure) {
-    bullets.push("One part of this is carrying real time pressure");
-  } else if (hasNoHardDeadline) {
-    bullets.push("Nothing here needs emergency handling");
-  }
-
-  return bullets;
-};
-
-const getSpecificTradeoffBullets = (analysis: ClarityAnalysis) =>
-  (analysis.structuredCleanup?.tradeoffs ?? [])
-    .map(stripTrailingPeriod)
-    .filter(Boolean)
-    .map((tradeoff) => {
-      if (/higher pay vs faster payment/i.test(tradeoff)) {
-        return "This includes a higher-pay versus faster-payment tradeoff";
-      }
-
-      if (/sending sooner vs protecting your energy/i.test(tradeoff)) {
-        return "The tradeoff is speed versus protecting your energy";
-      }
-
-      if (/act sooner vs wait a bit/i.test(tradeoff)) {
-        return "The choice is between moving sooner and keeping pressure lower";
-      }
-
-      if (/focused niche vs broader reach/i.test(tradeoff)) {
-        return "This is partly a focus-versus-breadth decision";
-      }
-
-      return tradeoff;
-    });
-
-const getWhatImSeeingBullets = (analysis: ClarityAnalysis) => {
-  const bullets = dedupeBullets([
-    ...getConcretePressureBullets(analysis),
-    ...getSpecificTradeoffBullets(analysis),
-    ...(analysis.structuredCleanup?.context ?? [])
-      .map(stripTrailingPeriod)
-      .filter(
-        (entry) =>
-          entry &&
-          !/\bthere is real time pressure around this\b/i.test(entry) &&
-          !/\bthere is no hard deadline here\b/i.test(entry) &&
-          !/\bthere may be relationship or work consequences here\b/i.test(entry) &&
-          !/\benergy feels low right now\b/i.test(entry) &&
-          !/\bcash timing seems to matter here\b/i.test(entry) &&
-          !/\bone path appears to have higher upside\b/i.test(entry)
-      ),
-    analysis.activeItems.length
-      ? `Still meaningful right now: ${joinTitles(analysis.activeItems.slice(0, 2).map((item) => item.title))}`
-      : "",
-    analysis.laterItems.length
-      ? `${analysis.laterItems[0].title} still matters, but it does not need to lead`
-      : "",
-  ]);
-
-  return bullets.slice(0, 5).map(toSentence);
-};
-
 const getWhyThisFirstCopy = (analysis: ClarityAnalysis) => {
-  const firstMove = analysis.firstMove;
-  if (!firstMove) {
-    return "The app did not get a stable enough Clarity read to compare options yet.";
+  if (analysis.structuredCleanup?.why_first) {
+    return analysis.structuredCleanup.why_first;
   }
 
-  const runnerUps = [
-    ...analysis.activeItems.slice(0, 2),
-    ...analysis.laterItems.slice(0, 1),
-  ].filter((candidate, index, list) => list.findIndex((entry) => entry.id === candidate.id) === index);
+  if (!analysis.firstMove) {
+    return "";
+  }
 
-  if (!runnerUps.length) {
-    return stripTrailingPeriod(firstMove.calmingWhy);
+  const firstMove = analysis.firstMove;
+  const compareAgainst = getStillInPlayItems(analysis)[0] ?? getCanWaitItems(analysis)[0] ?? null;
+  if (!compareAgainst) {
+    return toSentence(firstMove.calmingWhy);
   }
 
   const lines: string[] = [];
-  const topRunner = runnerUps[0];
 
-  if (titleHas(firstMove, /\blandlord|rent\b/) && titleHas(topRunner, /\bwebsite\b/)) {
-    lines.push("The landlord issue gets harder if you leave it untouched");
-    lines.push("Website work still matters, but it has less immediate pressure");
-  } else if (titleHas(firstMove, /\bproposal|client\b/) && titleHas(topRunner, /\bwebsite\b/)) {
-    lines.push("Client-facing work has more immediate upside than website work right now");
-    lines.push("The website still matters, but it does not need to lead");
-  } else if (titleHas(firstMove, /\bdubai\b/) && titleHas(topRunner, /\bproposal\b/)) {
-    lines.push("The Dubai lead could move cash sooner");
-    lines.push("The proposal may be bigger upside, but it can follow after the first move");
-  } else if (titleHas(firstMove, /\brest\b/) || titleHas(topRunner, /\brest\b/)) {
-    lines.push("Low energy makes the lighter move more realistic than heavier work");
-  } else {
-    lines.push(`${firstMove.title} has the strongest mix of pressure and payoff right now`);
+  if (
+    firstMove.triageAnswers.hasDeadline && !compareAgainst.triageAnswers.hasDeadline ||
+    firstMove.delayCostScore > compareAgainst.delayCostScore + 0.45
+  ) {
+    lines.push(`${stripTrailingPeriod(firstMove.title)} gets harder if you leave it untouched`);
   }
 
-  runnerUps.forEach((candidate) => {
-    if (candidate.id === topRunner.id) {
-      return;
-    }
+  if (
+    compareAgainst.delayCostScore < firstMove.delayCostScore ||
+    (!compareAgainst.triageAnswers.hasDeadline && firstMove.triageAnswers.hasDeadline)
+  ) {
+    lines.push(`${stripTrailingPeriod(compareAgainst.title)} still matters, but it has less immediate pressure`);
+  }
 
-    if (candidate.triageResult.quadrant === "schedule") {
-      lines.push(`${candidate.title} still matters, but it can follow after the first move`);
-    } else if (candidate.triageResult.quadrant === "delegate") {
-      lines.push(`${candidate.title} is still real, but it does not deserve the first block of effort`);
-    } else if (candidate.triageResult.quadrant === "eliminate") {
-      lines.push(`${candidate.title} carries less pressure, so it can stay in the background for now`);
-    }
-  });
+  if (
+    analysis.contextKinds.includes("lowEnergy") &&
+    firstMove.executionEaseScore >= compareAgainst.executionEaseScore + 0.35
+  ) {
+    lines.push(
+      `Low energy makes ${stripTrailingPeriod(firstMove.title).toLowerCase()} more realistic than ${stripTrailingPeriod(compareAgainst.title).toLowerCase()}`
+    );
+  }
 
-  return `${lines.map(stripTrailingPeriod).join(". ")}.`;
+  if (!lines.length) {
+    lines.push(
+      `${stripTrailingPeriod(firstMove.title)} leads because it is the clearest move to make before ${stripTrailingPeriod(compareAgainst.title).toLowerCase()}`
+    );
+  }
+
+  return toSentence(lines.join(". "));
 };
 
 const getStillInPlayCopy = (candidate: ClarityCandidate) => {
   switch (candidate.triageResult.quadrant) {
     case "doNow":
-      return "Still meaningful, just not the clearest place to start.";
+      return "Still meaningful, just not the cleanest place to start.";
     case "schedule":
       return "Still matters, but it can follow after the first move settles.";
     case "delegate":
-      return "Still real, but it does not deserve the first block of effort.";
+      return "Still worth moving, just not worth the first block of effort.";
     case "eliminate":
     default:
-      return "Still part of the picture, just lower-pressure than the move above.";
+      return "Still part of the picture, but it carries less pressure right now.";
   }
 };
 
@@ -363,17 +266,11 @@ const getNextStepCopy = (analysis: ClarityAnalysis, candidate: ClarityCandidate)
 };
 
 const getAdaptiveWaitCopy = (analysis: ClarityAnalysis, candidate: ClarityCandidate) => {
-  if (analysis.activeDecisionGroupId) {
-    return analysis.decisionShape === "option_choice"
-      ? "A valid option, just not the cleaner first move here."
-      : getStillInPlayCopy(candidate);
-  }
-
   if (analysis.decisionShape === "option_choice") {
-    return "Still valid, just not the strongest option to act on first.";
+    return "A valid option, but it does not need to lead.";
   }
 
-  return getStillInPlayCopy(candidate);
+  return getWaitCopy(candidate);
 };
 
 const getModeHeading = (analysis: ClarityAnalysis) => {
@@ -454,20 +351,11 @@ function ClarityResultScreen() {
   }
 
   const { firstMove, question } = claritySession;
-  const currentDecisionGroup =
-    claritySession.decisionGroups.find((group) => group.id === claritySession.activeDecisionGroupId) ??
-    (claritySession.decisionGroups.length === 1 ? claritySession.decisionGroups[0] : undefined);
-  const remainingDecisionGroups = claritySession.decisionGroups.filter(
-    (group) => group.id !== claritySession.activeDecisionGroupId
-  );
+  void question;
   const consideredBoard = getConsideredBoard(claritySession);
   const activeItems = getStillInPlayItems(claritySession).slice(0, 3);
   const laterItems = getCanWaitItems(claritySession).slice(0, 3);
-  const seeingBullets = getWhatImSeeingBullets(claritySession);
   const whyThisFirst = getWhyThisFirstCopy(claritySession);
-  const questionCandidates = question
-    ? claritySession.candidates.filter((candidate) => question.candidateIds.includes(candidate.id))
-    : [];
 
   return (
     <ScreenShell>
@@ -488,82 +376,8 @@ function ClarityResultScreen() {
         <Text style={[styles.subtitle, { color: theme.colors.textMuted }]}>{claritySession.summary}</Text>
       </View>
 
-      {remainingDecisionGroups.length ? (
-        <NeuCard variant="flat" style={styles.questionCard}>
-          <Text style={[styles.label, { color: theme.colors.textSoft }]}>Another decision is here</Text>
-          <Text style={[styles.questionPrompt, { color: theme.colors.text }]}>
-            {remainingDecisionGroups.length === 1
-              ? "There is another separate choice we can resolve next."
-              : `There are ${remainingDecisionGroups.length} other separate choices still unresolved.`}
-          </Text>
-          <View style={styles.questionOptions}>
-            {remainingDecisionGroups.map((group) => (
-              <Pressable
-                key={group.id}
-                onPress={() => focusClarityDecisionGroup(group.id)}
-                style={[
-                  styles.questionOption,
-                  {
-                    backgroundColor: theme.colors.surfaceInset,
-                    borderColor: theme.colors.stroke,
-                  },
-                ]}
-              >
-                <Text style={[styles.questionOptionText, { color: theme.colors.text }]}>{group.label}</Text>
-                {group.tradeoffHint ? (
-                  <Text style={[styles.questionHint, { color: theme.colors.textSoft }]}>{group.tradeoffHint}</Text>
-                ) : null}
-              </Pressable>
-            ))}
-          </View>
-        </NeuCard>
-      ) : null}
-
       {
         <>
-          {question ? (
-            <NeuCard variant="flat" style={styles.questionCard}>
-              <Text style={[styles.label, { color: theme.colors.textSoft }]}>One quick question</Text>
-              <Text style={[styles.questionPrompt, { color: theme.colors.text }]}>{question.prompt}</Text>
-              <View style={styles.questionOptions}>
-                {questionCandidates.map((candidate) => (
-                  <Pressable
-                    key={candidate.id}
-                    onPress={() => answerClarityQuestion(candidate.id)}
-                    style={[
-                      styles.questionOption,
-                      {
-                        backgroundColor: theme.colors.surfaceInset,
-                        borderColor: theme.colors.stroke,
-                      },
-                    ]}
-                  >
-                    <Text style={[styles.questionOptionText, { color: theme.colors.text }]}>
-                      {candidate.title}
-                    </Text>
-                  </Pressable>
-                ))}
-              </View>
-              <Text style={[styles.questionHint, { color: theme.colors.textSoft }]}>
-                The app is already leaning toward a first move below. This just sharpens the read.
-              </Text>
-            </NeuCard>
-          ) : null}
-
-          {seeingBullets.length ? (
-            <NeuCard variant="flat" style={styles.sectionCard}>
-              <Text style={[styles.label, { color: theme.colors.textSoft }]}>What I'm seeing</Text>
-              <View style={styles.bulletList}>
-                {seeingBullets.map((bullet) => (
-                  <View key={bullet} style={styles.bulletRow}>
-                    <Text style={[styles.bulletMarker, { color: theme.colors.textSoft }]}>-</Text>
-                    <Text style={[styles.bulletText, { color: theme.colors.textMuted }]}>{bullet}</Text>
-                  </View>
-                ))}
-              </View>
-            </NeuCard>
-          ) : null}
-
           {consideredBoard.titles.length ? (
             <NeuCard variant="flat" style={styles.sectionCard}>
               <Text style={[styles.label, { color: theme.colors.textSoft }]}>What I considered</Text>
@@ -610,14 +424,9 @@ function ClarityResultScreen() {
                 Decision: {claritySession.decisionLabel}
               </Text>
             ) : null}
-            {currentDecisionGroup?.tradeoffHint ? (
-              <Text style={[styles.waitFootnote, { color: theme.colors.textSoft }]}>
-                {currentDecisionGroup.tradeoffHint}
-              </Text>
-            ) : null}
             <Text style={[styles.primaryTitle, { color: theme.colors.text }]}>{firstMove.title}</Text>
             <Text style={[styles.primaryWhy, { color: theme.colors.textMuted }]}>
-              {claritySession.aiSummary?.primary_reason ?? firstMove.calmingWhy}
+              {firstMove.calmingWhy}
             </Text>
             {firstMove.reasonTags.length ? (
               <View style={styles.factorRow}>
@@ -640,15 +449,13 @@ function ClarityResultScreen() {
           </NeuCard>
 
           <NeuCard variant="flat" style={styles.nextCard}>
-            <Text style={[styles.label, { color: theme.colors.textSoft }]}>
-              {getActionHeading(claritySession, firstMove)}
-            </Text>
-            <Text style={[styles.nextMove, { color: theme.colors.text }]}>
-              {claritySession.aiSummary?.primary_recommendation ?? getDisplayedRecommendation(claritySession, firstMove)}
-            </Text>
-            <Text style={[styles.nextStep, { color: theme.colors.textMuted }]}>
-              {getNextStepCopy(claritySession, firstMove)}
-            </Text>
+              <Text style={[styles.label, { color: theme.colors.textSoft }]}>
+                {getActionHeading(claritySession, firstMove)}
+              </Text>
+              <Text style={[styles.nextMove, { color: theme.colors.text }]}>Start with {firstMove.title}.</Text>
+              <Text style={[styles.nextStep, { color: theme.colors.textMuted }]}>
+                {getNextStepCopy(claritySession, firstMove)}
+              </Text>
           </NeuCard>
 
           <NeuCard variant="flat" style={styles.sectionCard}>
@@ -856,7 +663,7 @@ export default function ResultScreen() {
   const { claritySession, draft } = useAppData();
 
   if (claritySession) {
-    return <ClarityResultScreen />;
+    return <ClarityV1Result />;
   }
 
   if (draft) {

@@ -1,4 +1,4 @@
-import type { AiCleanupResult, AiCleanupSummary } from "./ai-cleanup";
+import type { AiCleanupResult } from "./ai-cleanup";
 
 export type Quadrant = "doNow" | "schedule" | "delegate" | "eliminate";
 
@@ -112,7 +112,11 @@ export interface ClarityAnalysis {
   contextKinds: string[];
   contextHints: string[];
   summary: string;
-  aiSummary?: AiCleanupSummary;
+  aiSummary?: {
+    situation: string;
+    primary_recommendation: string;
+    primary_reason: string;
+  };
   firstMove: ClarityCandidate | null;
   candidates: ClarityCandidate[];
   activeItems: ClarityCandidate[];

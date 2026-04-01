@@ -3,10 +3,12 @@ import { StyleSheet, Text, View } from "react-native";
 import { HeaderButton } from "../../../components/HeaderButton";
 import { NeuButton } from "../../../components/NeuButton";
 import { NeuCard } from "../../../components/NeuCard";
+import { QuadrantPill } from "../../../components/QuadrantPill";
 import { ScreenShell } from "../../../components/ScreenShell";
 import { useAppData } from "../../../providers/app-provider";
 import { useAppTheme } from "../../../providers/theme-provider";
 import { goBackOrFallback } from "../../../utils/navigation";
+import type { ClarityCandidate } from "../../../types/decision";
 
 const dedupeStrings = (values: string[]) => {
   const seen = new Set<string>();
@@ -19,6 +21,40 @@ const dedupeStrings = (values: string[]) => {
     seen.add(key);
     return true;
   });
+};
+
+const getRankLane = (candidate: ClarityCandidate, index: number) => {
+  if (index === 0) {
+    return candidate.triageResult.quadrant === "doNow" ? "Next pressure point" : "Next best move";
+  }
+
+  switch (candidate.triageResult.quadrant) {
+    case "doNow":
+      return "Still urgent";
+    case "schedule":
+      return "Important, but calmer";
+    case "delegate":
+      return "Lighter handling";
+    case "eliminate":
+    default:
+      return "Lowest pressure";
+  }
+};
+
+const getRankCopy = (candidate: ClarityCandidate, index: number) => {
+  switch (candidate.triageResult.quadrant) {
+    case "doNow":
+      return index === 0
+        ? "This is the next item to touch if you still have room after the lead move."
+        : "This still carries real downside if ignored, but it no longer deserves the first slot.";
+    case "schedule":
+      return "This matters enough to keep, but it should follow a deliberate block instead of leading the session.";
+    case "delegate":
+      return "Keep it moving with the lightest workable action rather than giving it the main block of effort.";
+    case "eliminate":
+    default:
+      return "Leave this out of the foreground unless the facts change.";
+  }
 };
 
 export function ClarityV1Result() {
@@ -78,11 +114,12 @@ export function ClarityV1Result() {
   }
 
   const firstMove = claritySession.firstMove;
-  const considered = dedupeStrings(claritySession.structuredCleanup?.considered_items ?? claritySession.candidates.map((candidate) => candidate.title)).slice(0, 5);
+  const considered = dedupeStrings(
+    claritySession.structuredCleanup?.considered_items ?? claritySession.candidates.map((candidate) => candidate.title)
+  ).slice(0, 8);
   const contextNotes = dedupeStrings(claritySession.structuredCleanup?.context_notes ?? claritySession.contextHints).slice(0, 3);
-  const stillInPlay = claritySession.activeItems.slice(0, 3);
-  const whatCanWait = claritySession.laterItems.slice(0, 3);
   const whyFirst = claritySession.structuredCleanup?.why_first || firstMove.calmingWhy;
+  const rankedAfterFirst = claritySession.candidates.filter((candidate) => candidate.id !== firstMove.id);
 
   return (
     <ScreenShell>
@@ -137,48 +174,69 @@ export function ClarityV1Result() {
       </NeuCard>
 
       <NeuCard variant="flat" style={styles.sectionCard}>
+        <Text style={[styles.label, { color: theme.colors.textSoft }]}>What to do now</Text>
+        <Text style={[styles.bodyLead, { color: theme.colors.text }]}>Start with {firstMove.title}.</Text>
+        <Text style={[styles.body, { color: theme.colors.textMuted }]}>
+          {firstMove.triageResult.nextStep}
+        </Text>
+      </NeuCard>
+
+      <NeuCard variant="flat" style={styles.sectionCard}>
+        <Text style={[styles.label, { color: theme.colors.textSoft }]}>Full order right now</Text>
+        <Text style={[styles.meta, { color: theme.colors.textSoft }]}>
+          Ranked by urgency, importance, cost of delay, and energy fit after the first move.
+        </Text>
+        {rankedAfterFirst.length ? (
+          <View style={styles.rankingList}>
+            {rankedAfterFirst.map((candidate, index) => (
+              <View
+                key={candidate.id}
+                style={[
+                  styles.rankingRow,
+                  {
+                    backgroundColor: theme.colors.surfaceInset,
+                    borderColor: theme.colors.stroke,
+                  },
+                ]}
+              >
+                <View
+                  style={[
+                    styles.rankBadge,
+                    {
+                      backgroundColor: theme.colors.surface,
+                      borderColor: theme.colors.stroke,
+                    },
+                  ]}
+                >
+                  <Text style={[styles.rankBadgeText, { color: theme.colors.text }]}>#{index + 2}</Text>
+                </View>
+                <View style={styles.rankingBody}>
+                  <View style={styles.rankingTop}>
+                    <Text style={[styles.rowTitle, styles.rankingTitle, { color: theme.colors.text }]}>
+                      {candidate.title}
+                    </Text>
+                    <QuadrantPill quadrant={candidate.triageResult.quadrant} compact />
+                  </View>
+                  <Text style={[styles.rankLane, { color: theme.colors.textSoft }]}>
+                    {getRankLane(candidate, index)}
+                  </Text>
+                  <Text style={[styles.rowCopy, { color: theme.colors.textMuted }]}>
+                    {getRankCopy(candidate, index)}
+                  </Text>
+                </View>
+              </View>
+            ))}
+          </View>
+        ) : (
+          <Text style={[styles.body, { color: theme.colors.textMuted }]}>
+            There is no second item competing for attention right now.
+          </Text>
+        )}
+      </NeuCard>
+
+      <NeuCard variant="flat" style={styles.sectionCard}>
         <Text style={[styles.label, { color: theme.colors.textSoft }]}>Why this first</Text>
         <Text style={[styles.body, { color: theme.colors.textMuted }]}>{whyFirst}</Text>
-      </NeuCard>
-
-      <NeuCard variant="flat" style={styles.sectionCard}>
-        <Text style={[styles.label, { color: theme.colors.textSoft }]}>Still in play</Text>
-        {stillInPlay.length ? (
-          <View style={styles.stack}>
-            {stillInPlay.map((candidate) => (
-              <View key={candidate.id} style={styles.row}>
-                <Text style={[styles.rowTitle, { color: theme.colors.text }]}>{candidate.title}</Text>
-                <Text style={[styles.rowCopy, { color: theme.colors.textMuted }]}>
-                  Still meaningful, just not the first move.
-                </Text>
-              </View>
-            ))}
-          </View>
-        ) : (
-          <Text style={[styles.body, { color: theme.colors.textMuted }]}>
-            Nothing else needs the same level of foreground attention right now.
-          </Text>
-        )}
-      </NeuCard>
-
-      <NeuCard variant="flat" style={styles.sectionCard}>
-        <Text style={[styles.label, { color: theme.colors.textSoft }]}>What can wait</Text>
-        {whatCanWait.length ? (
-          <View style={styles.stack}>
-            {whatCanWait.map((candidate) => (
-              <View key={candidate.id} style={styles.row}>
-                <Text style={[styles.rowTitle, { color: theme.colors.text }]}>{candidate.title}</Text>
-                <Text style={[styles.rowCopy, { color: theme.colors.textMuted }]}>
-                  Lower pressure for now, so it does not need to lead.
-                </Text>
-              </View>
-            ))}
-          </View>
-        ) : (
-          <Text style={[styles.body, { color: theme.colors.textMuted }]}>
-            Nothing else needs to be pushed into a later bucket right now.
-          </Text>
-        )}
       </NeuCard>
 
       <NeuButton
@@ -264,6 +322,11 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     fontFamily: "IBMPlexSans_500Medium",
   },
+  bodyLead: {
+    fontSize: 19,
+    lineHeight: 25,
+    fontFamily: "SpaceGrotesk_500Medium",
+  },
   boardList: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -300,5 +363,49 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
     fontFamily: "IBMPlexSans_500Medium",
+  },
+  rankingList: {
+    gap: 12,
+  },
+  rankingRow: {
+    borderWidth: 1,
+    borderRadius: 18,
+    padding: 12,
+    flexDirection: "row",
+    gap: 12,
+    alignItems: "flex-start",
+  },
+  rankBadge: {
+    minWidth: 44,
+    minHeight: 44,
+    borderRadius: 14,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  rankBadgeText: {
+    fontSize: 14,
+    lineHeight: 18,
+    fontFamily: "SpaceGrotesk_600SemiBold",
+  },
+  rankingBody: {
+    flex: 1,
+    gap: 4,
+  },
+  rankingTop: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    gap: 12,
+  },
+  rankingTitle: {
+    flex: 1,
+  },
+  rankLane: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontFamily: "IBMPlexSans_600SemiBold",
+    textTransform: "uppercase",
+    letterSpacing: 0.8,
   },
 });

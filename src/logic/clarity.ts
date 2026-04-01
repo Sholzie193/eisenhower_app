@@ -2007,8 +2007,10 @@ const finalizeAnalysis = (
     contextHints: contextSignals.map((signal) => signal.label),
     summary:
       options?.aiSummary?.situation ??
-      (decisionGroups.length > 1 && activeDecisionGroupId
-        ? `I found ${decisionGroups.length} separate choices here. This resolves the one with the clearest immediate weight first, and another decision remains for later.`
+      (decisionGroups.length > 1
+        ? activeDecisionGroupId
+          ? `I found ${decisionGroups.length} separate choices here. This resolves the one with the clearest immediate weight first, and another decision remains for later.`
+          : `I found ${decisionGroups.length} separate choices here, so the app ranked the whole board by immediate weight instead of collapsing it into one dilemma.`
         : decisionShape === "option_choice"
           ? decisionGate === "fast"
             ? "This looks like a contained choice, so the app kept the answer light and direct."
@@ -2086,7 +2088,7 @@ export const analyzeStructuredClarityInput = (
     .filter((group): group is ClarityDecisionGroup => Boolean(group));
   const activeDecisionGroup =
     decisionGroups.find((group) => group.id === selectedDecisionGroupId) ??
-    (decisionGroups.length > 1 ? pickPrimaryDecisionGroup(decisionGroups) : decisionGroups[0]);
+    (decisionGroups.length === 1 ? decisionGroups[0] : undefined);
   const scopedSourceText = activeDecisionGroup?.sourceText ?? normalizedInput;
   const contextSignals = extractContextSignals([normalizedInput, ...cleanup.context_notes].join(". "));
   const primaryCandidateTexts = activeDecisionGroup?.candidateTexts.length
@@ -2144,7 +2146,7 @@ export const analyzeClarityInput = (rawInput: string, selectedDecisionGroupId?: 
   const decisionGroups = detectDecisionGroups(normalizedInput);
   const activeDecisionGroup =
     decisionGroups.find((group) => group.id === selectedDecisionGroupId) ??
-    (decisionGroups.length > 1 ? pickPrimaryDecisionGroup(decisionGroups) : decisionGroups[0]);
+    (decisionGroups.length === 1 ? decisionGroups[0] : undefined);
   const scopedInput = activeDecisionGroup?.sourceText ?? normalizedInput;
   const contextSignals = extractContextSignals([normalizedInput, scopedInput].join(". "));
   const candidateRelationship =

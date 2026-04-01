@@ -182,9 +182,13 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
     setDraft(null);
     const normalizedInput = rawInput.trim();
     const aiResult = await requestClarityV1(normalizedInput);
-    const nextSession = aiResult
+    const structuredSession = aiResult
       ? analyzeStructuredClarityInput(normalizedInput, aiResult)
-      : analyzeClarityInput(normalizedInput);
+      : null;
+    const nextSession =
+      structuredSession && structuredSession.status === "ready"
+        ? structuredSession
+        : analyzeClarityInput(normalizedInput);
     setClaritySession(nextSession);
     return nextSession;
   };

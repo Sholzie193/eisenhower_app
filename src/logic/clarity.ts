@@ -2098,11 +2098,7 @@ export const analyzeStructuredClarityInput = (
   ).slice(0, 5);
 
   if (!candidateTexts.length) {
-    return createClarityFailureAnalysis(
-      normalizedInput,
-      "I couldn't get a reliable Clarity read from that yet.",
-      "Try again with the same input, or switch to the manual breakdown if you want a deterministic read."
-    );
+    return analyzeClarityInput(normalizedInput, selectedDecisionGroupId);
   }
   const builtCandidates = candidateTexts.map((title, index) =>
     buildCandidate(title, index, getAiBoardCandidateSignals([title, ...cleanup.context_notes].join(". ")))

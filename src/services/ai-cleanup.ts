@@ -1,7 +1,7 @@
 import Constants from "expo-constants";
 import type { AiCleanupResult } from "../types/ai-cleanup";
 
-const OPENAI_MODEL = "gpt-5-mini";
+const OPENAI_MODEL = "gpt-4.1-mini";
 
 const AI_META_PATTERNS = [
   /\bwhat should (?:i\s+)?actually do first\b/i,
@@ -382,7 +382,7 @@ export const cleanupClarityInputWithAi = async (rawInput: string): Promise<AiCle
       body: JSON.stringify({
         model: OPENAI_MODEL,
         temperature: 0.1,
-        max_completion_tokens: 450,
+        max_tokens: 600,
         response_format: {
           type: "json_schema",
           json_schema: {
@@ -405,7 +405,12 @@ export const cleanupClarityInputWithAi = async (rawInput: string): Promise<AiCle
     });
 
     if (!response.ok) {
-      debugAiCleanup("http_not_ok", { status: response.status, statusText: response.statusText });
+      const errorBody = await response.text().catch(() => "");
+      debugAiCleanup("http_not_ok", {
+        status: response.status,
+        statusText: response.statusText,
+        body: errorBody.slice(0, 500),
+      });
       return null;
     }
 

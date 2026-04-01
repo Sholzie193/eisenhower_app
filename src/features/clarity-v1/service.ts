@@ -3,7 +3,7 @@ import { CLARITY_V1_PROMPT } from "./prompt";
 import { normalizeClarityV1Result } from "./normalize";
 import { CLARITY_V1_JSON_SCHEMA, type ClarityV1Result } from "./schema";
 
-const OPENAI_MODEL = "gpt-5-mini";
+const OPENAI_MODEL = "gpt-4.1-mini";
 
 type ClarityV1FailureReason =
   | "missing_api_key"
@@ -65,7 +65,7 @@ export const requestClarityV1 = async (rawInput: string): Promise<ClarityV1Resul
       body: JSON.stringify({
         model: OPENAI_MODEL,
         temperature: 0.1,
-        max_completion_tokens: 350,
+        max_tokens: 500,
         response_format: {
           type: "json_schema",
           json_schema: {
@@ -82,7 +82,12 @@ export const requestClarityV1 = async (rawInput: string): Promise<ClarityV1Resul
     });
 
     if (!response.ok) {
-      debugClarityV1("http_not_ok", { status: response.status, statusText: response.statusText });
+      const errorBody = await response.text().catch(() => "");
+      debugClarityV1("http_not_ok", {
+        status: response.status,
+        statusText: response.statusText,
+        body: errorBody.slice(0, 500),
+      });
       return null;
     }
 

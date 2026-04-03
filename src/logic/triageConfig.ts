@@ -18,7 +18,7 @@ export const DEFAULT_TRIAGE_ANSWERS: TriageAnswers = {
 
 export const URGENCY_WEIGHTS: Record<DueWindow, number> = {
   today: 6.5,
-  tomorrow: 4.8,
+  tomorrow: 4.1,
   thisWeek: 3.1,
   later: 1.6,
   noDeadline: 0.4,

@@ -23,7 +23,7 @@ export const CLARITY_V1_JSON_SCHEMA = {
     },
     decision_groups: {
       type: "array",
-      maxItems: 5,
+      maxItems: 6,
       items: {
         type: "object",
         additionalProperties: false,
@@ -33,7 +33,7 @@ export const CLARITY_V1_JSON_SCHEMA = {
           label: { type: "string" },
           items: {
             type: "array",
-            maxItems: 4,
+            maxItems: 6,
             items: { type: "string" },
           },
           candidate_relationship: {

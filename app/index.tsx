@@ -9,17 +9,26 @@ import { sortItemsByPriority } from "../src/logic/priority";
 import { useAppData } from "../src/providers/app-provider";
 import { useAppTheme } from "../src/providers/theme-provider";
 
+const MIN_CLARITY_RUN_MS = 1200;
+const RANKING_STAGE_DELAY_MS = 600;
+
 const EXAMPLE_INPUTS = [
   "Need to call landlord",
   "Fix website, send outreach emails, and rest",
   "I don't know whether to finish the proposal, follow up a client, or handle admin",
 ];
 
+const wait = (durationMs: number) =>
+  new Promise((resolve) => {
+    setTimeout(resolve, durationMs);
+  });
+
 export default function HomeScreen() {
   const { hydrated, items, runClarity, startDraft } = useAppData();
   const { theme } = useAppTheme();
   const [input, setInput] = useState("");
   const [isRunningClarity, setIsRunningClarity] = useState(false);
+  const [clarityStage, setClarityStage] = useState<"idle" | "extracting" | "ranking">("idle");
 
   const activeItems = useMemo(
     () => sortItemsByPriority(items.filter((item) => !item.completed)),
@@ -36,6 +45,20 @@ export default function HomeScreen() {
         ? "Nothing looks especially loud right now."
         : "Start with whatever feels most mentally present.";
   const inputMeta = input.trim() ? `${input.trim().length} chars` : "Scrolls when long";
+  const clarityButtonLabel =
+    clarityStage === "extracting"
+      ? "Separating the real tasks..."
+      : clarityStage === "ranking"
+        ? "Ranking the board..."
+        : "Find the clearest move";
+  const helperCopy =
+    clarityStage === "extracting"
+      ? "AI cleanup is pulling out the real tasks or choices first."
+      : clarityStage === "ranking"
+        ? "The app is ranking the cleaned board against your decision rules."
+        : "Long prompts stay inside this panel. Just write it plainly.";
+  const helperMeta =
+    clarityStage === "idle" ? "Phone-first capture" : "Clarity in progress";
 
   if (!hydrated) {
     return (
@@ -112,9 +135,9 @@ export default function HomeScreen() {
 
         <View style={styles.helperRow}>
           <Text style={[styles.helper, { color: theme.colors.textSoft }]}>
-            Long prompts stay inside this panel. Just write it plainly.
+            {helperCopy}
           </Text>
-          <Text style={[styles.helperMeta, { color: theme.colors.textSoft }]}>Phone-first capture</Text>
+          <Text style={[styles.helperMeta, { color: theme.colors.textSoft }]}>{helperMeta}</Text>
         </View>
 
         <View style={styles.exampleWrap}>
@@ -133,16 +156,30 @@ export default function HomeScreen() {
         </View>
 
         <NeuButton
-          label={isRunningClarity ? "Cleaning up your input..." : "Find the clearest move"}
+          label={clarityButtonLabel}
           disabled={!input.trim() || isRunningClarity}
           onPress={() => {
             void (async () => {
+              const startedAt = Date.now();
+              let rankingStageTimer: ReturnType<typeof setTimeout> | null = null;
               setIsRunningClarity(true);
+              setClarityStage("extracting");
               try {
+                rankingStageTimer = setTimeout(() => {
+                  setClarityStage("ranking");
+                }, RANKING_STAGE_DELAY_MS);
                 await runClarity(input);
+                const elapsedMs = Date.now() - startedAt;
+                if (elapsedMs < MIN_CLARITY_RUN_MS) {
+                  await wait(MIN_CLARITY_RUN_MS - elapsedMs);
+                }
                 router.push("/result");
               } finally {
+                if (rankingStageTimer) {
+                  clearTimeout(rankingStageTimer);
+                }
                 setIsRunningClarity(false);
+                setClarityStage("idle");
               }
             })();
           }}

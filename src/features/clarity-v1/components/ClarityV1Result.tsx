@@ -116,11 +116,9 @@ export function ClarityV1Result() {
   }
 
   const firstMove = claritySession.firstMove;
-  const considered = dedupeStrings(
-    claritySession.structuredCleanup?.considered_items ?? claritySession.candidates.map((candidate) => candidate.title)
-  ).slice(0, 8);
+  const considered = claritySession.candidates.map((candidate) => candidate.title).slice(0, 8);
   const contextNotes = dedupeStrings(claritySession.structuredCleanup?.context_notes ?? claritySession.contextHints).slice(0, 3);
-  const whyFirst = claritySession.structuredCleanup?.why_first || firstMove.calmingWhy;
+  const whyFirst = firstMove.calmingWhy;
   const rankedCandidates = claritySession.candidates;
   const shouldSaveWholeBoard = rankedCandidates.length > 1;
 

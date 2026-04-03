@@ -30,6 +30,49 @@ export const getQuadrantFromScores = (
   return "eliminate";
 };
 
+const SHOULD_NOT_ELIMINATE_AREAS: TriageAnswers["impactAreas"] = [
+  "money",
+  "work",
+  "housing",
+  "relationships",
+  "reputation",
+  "longTermGoals",
+  "health",
+  "safety",
+];
+
+const shouldAvoidEliminate = (
+  answers: TriageAnswers,
+  urgencyScore: number,
+  importanceScore: number
+) => {
+  if (
+    answers.handlingChoice === "ignore" &&
+    !answers.hasDeadline &&
+    answers.delayImpact === "none" &&
+    answers.importanceSignal === "mostlyNoise"
+  ) {
+    return false;
+  }
+
+  if (answers.hasDeadline || answers.delayImpact === "disruptive" || answers.delayImpact === "severe") {
+    return true;
+  }
+
+  if (answers.importanceSignal === "meaningful") {
+    return true;
+  }
+
+  if (
+    answers.importanceSignal !== "mostlyNoise" &&
+    answers.impactAreas.some((area) => SHOULD_NOT_ELIMINATE_AREAS.includes(area))
+  ) {
+    return true;
+  }
+
+  return urgencyScore >= 4.2 && importanceScore >= 3.4;
+};
+
 const getAreaSummary = (areas: TriageAnswers["impactAreas"]) => {
   if (!areas.length) {
     return "";
@@ -286,7 +329,13 @@ export const evaluateTriage = (answers: TriageAnswers = DEFAULT_TRIAGE_ANSWERS):
 
   const normalizedUrgency = clampScore(urgencyScore);
   const normalizedImportance = clampScore(importanceScore);
-  const quadrant = getQuadrantFromScores(normalizedUrgency, normalizedImportance);
+  const baseQuadrant = getQuadrantFromScores(normalizedUrgency, normalizedImportance);
+  const quadrant =
+    baseQuadrant === "eliminate" && shouldAvoidEliminate(answers, normalizedUrgency, normalizedImportance)
+      ? normalizedUrgency >= 4.2
+        ? "delegate"
+        : "schedule"
+      : baseQuadrant;
   const guidance = getQuadrantGuidance(quadrant, answers);
 
   const explanation = buildExplanation(quadrant, answers);

@@ -2,7 +2,12 @@ import { createContext, useContext, useEffect, useRef, useState, type PropsWithC
 import { sampleItems } from "../constants/sampleData";
 import { QUADRANT_META } from "../constants/quadrants";
 import { requestClarityV1 } from "../features/clarity-v1/service";
-import { analyzeClarityInput, analyzeStructuredClarityInput } from "../logic/clarity";
+import {
+  analyzeClarityInput,
+  analyzeStructuredClarityInput,
+  answerClarityQuestion as answerClarityQuestionInAnalysis,
+  focusClarityDecisionGroup as focusClarityDecisionGroupInAnalysis,
+} from "../logic/clarity";
 import { evaluateTriage, getQuadrantGuidance } from "../logic/triage";
 import { DEFAULT_TRIAGE_ANSWERS } from "../logic/triageConfig";
 import { storage } from "../storage/storage";
@@ -213,11 +218,23 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
   };
 
   const answerClarityQuestion = (candidateId: string) => {
-    void candidateId;
+    setClaritySession((currentSession) => {
+      if (!currentSession) {
+        return currentSession;
+      }
+
+      return answerClarityQuestionInAnalysis(currentSession, candidateId);
+    });
   };
 
   const focusClarityDecisionGroup = (decisionGroupId: string) => {
-    void decisionGroupId;
+    setClaritySession((currentSession) => {
+      if (!currentSession) {
+        return currentSession;
+      }
+
+      return focusClarityDecisionGroupInAnalysis(currentSession, decisionGroupId);
+    });
   };
 
   const saveClarityCandidate = (candidate: ClarityCandidate, rawInput?: string) => {

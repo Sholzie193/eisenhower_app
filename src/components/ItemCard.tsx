@@ -13,6 +13,7 @@ interface ItemCardProps {
 
 export const ItemCard = ({ item, onPress }: ItemCardProps) => {
   const { theme } = useAppTheme();
+  const laneColors = theme.quadrants[item.quadrant];
 
   return (
     <View>
@@ -24,6 +25,7 @@ export const ItemCard = ({ item, onPress }: ItemCardProps) => {
         style={({ pressed }) => [{ transform: [{ scale: pressed ? 0.988 : 1 }] }]}
       >
         <NeuCard variant="raised" style={styles.card}>
+          <View style={[styles.accentRail, { backgroundColor: laneColors.solid }]} />
           <View style={styles.topRow}>
             <QuadrantPill quadrant={item.quadrant} compact />
             <Text style={[styles.time, { color: theme.colors.textSoft }]}>
@@ -31,6 +33,9 @@ export const ItemCard = ({ item, onPress }: ItemCardProps) => {
             </Text>
           </View>
           <Text style={[styles.title, { color: theme.colors.text }]}>{item.title}</Text>
+          <Text style={[styles.recommendation, { color: laneColors.solid }]}>
+            {item.recommendation}
+          </Text>
           <Text style={[styles.subtitle, { color: theme.colors.textMuted }]}>
             {getItemSubtitle(item)}
           </Text>
@@ -75,6 +80,16 @@ export const ItemCard = ({ item, onPress }: ItemCardProps) => {
 const styles = StyleSheet.create({
   card: {
     gap: 14,
+    paddingLeft: 22,
+    position: "relative",
+  },
+  accentRail: {
+    position: "absolute",
+    left: 0,
+    top: 18,
+    bottom: 18,
+    width: 5,
+    borderRadius: 999,
   },
   topRow: {
     flexDirection: "row",
@@ -84,6 +99,11 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 18,
     lineHeight: 24,
+    fontFamily: "IBMPlexSans_600SemiBold",
+  },
+  recommendation: {
+    fontSize: 13,
+    lineHeight: 18,
     fontFamily: "IBMPlexSans_600SemiBold",
   },
   subtitle: {

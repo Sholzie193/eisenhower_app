@@ -1,3 +1,5 @@
+import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
 import { Redirect, router } from "expo-router";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useState } from "react";
@@ -12,6 +14,7 @@ import { useAppData } from "../src/providers/app-provider";
 import { useAppTheme } from "../src/providers/theme-provider";
 import { goBackOrFallback } from "../src/utils/navigation";
 import type { ClarityAnalysis, ClarityCandidate } from "../src/types/decision";
+import { QUADRANT_META } from "../src/constants/quadrants";
 
 const getClarityLabel = (analysis: ClarityAnalysis, candidate: ClarityCandidate) => {
   void analysis;
@@ -412,6 +415,17 @@ function ClarityResultScreen() {
           ) : null}
 
           <NeuCard style={styles.heroCard}>
+            <LinearGradient
+              pointerEvents="none"
+              colors={
+                theme.mode === "dark"
+                  ? ["rgba(90, 124, 157, 0.16)", "rgba(10, 16, 23, 0)"]
+                  : ["rgba(88, 122, 158, 0.16)", "rgba(250, 252, 254, 0)"]
+              }
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.heroGradient}
+            />
             <View style={styles.heroTop}>
               <QuadrantPill quadrant={firstMove.triageResult.quadrant} />
               <Text style={[styles.heroTag, { color: theme.quadrants[firstMove.triageResult.quadrant].solid }]}>
@@ -447,6 +461,45 @@ function ClarityResultScreen() {
               </View>
             ) : null}
           </NeuCard>
+
+          <View style={styles.signalStrip}>
+            <View
+              style={[
+                styles.signalStatCard,
+                { backgroundColor: theme.colors.surfaceElevated, borderColor: theme.colors.stroke },
+              ]}
+            >
+              <Ionicons name="flash-outline" size={16} color={theme.colors.accentStrong} />
+              <Text style={[styles.signalStatLabel, { color: theme.colors.textSoft }]}>Urgency</Text>
+              <Text style={[styles.signalStatValue, { color: theme.colors.text }]}>
+                {firstMove.triageResult.urgencyScore.toFixed(1)}
+              </Text>
+            </View>
+            <View
+              style={[
+                styles.signalStatCard,
+                { backgroundColor: theme.colors.surfaceElevated, borderColor: theme.colors.stroke },
+              ]}
+            >
+              <Ionicons name="diamond-outline" size={16} color={theme.colors.accentStrong} />
+              <Text style={[styles.signalStatLabel, { color: theme.colors.textSoft }]}>Importance</Text>
+              <Text style={[styles.signalStatValue, { color: theme.colors.text }]}>
+                {firstMove.triageResult.importanceScore.toFixed(1)}
+              </Text>
+            </View>
+            <View
+              style={[
+                styles.signalStatCard,
+                { backgroundColor: theme.colors.surfaceElevated, borderColor: theme.colors.stroke },
+              ]}
+            >
+              <Ionicons name="layers-outline" size={16} color={theme.colors.accentStrong} />
+              <Text style={[styles.signalStatLabel, { color: theme.colors.textSoft }]}>Board</Text>
+              <Text style={[styles.signalStatValue, { color: theme.colors.text }]}>
+                {claritySession.candidates.length}
+              </Text>
+            </View>
+          </View>
 
           <NeuCard variant="flat" style={styles.nextCard}>
               <Text style={[styles.label, { color: theme.colors.textSoft }]}>
@@ -611,6 +664,17 @@ function ManualResultScreen() {
       </View>
 
       <NeuCard style={styles.heroCard}>
+        <LinearGradient
+          pointerEvents="none"
+          colors={
+            theme.mode === "dark"
+              ? ["rgba(90, 124, 157, 0.16)", "rgba(10, 16, 23, 0)"]
+              : ["rgba(88, 122, 158, 0.16)", "rgba(250, 252, 254, 0)"]
+          }
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.heroGradient}
+        />
         <View style={styles.heroTop}>
           <QuadrantPill quadrant={result.quadrant} />
           <Text style={[styles.heroTag, { color: quadrantColors.solid }]}>Matrix read</Text>
@@ -619,6 +683,45 @@ function ManualResultScreen() {
         <Text style={[styles.primaryTitle, { color: theme.colors.text }]}>{verdict}</Text>
         <Text style={[styles.primaryWhy, { color: theme.colors.textMuted }]}>{result.explanation}</Text>
       </NeuCard>
+
+      <View style={styles.signalStrip}>
+        <View
+          style={[
+            styles.signalStatCard,
+            { backgroundColor: theme.colors.surfaceElevated, borderColor: theme.colors.stroke },
+          ]}
+        >
+          <Ionicons name="flash-outline" size={16} color={theme.colors.accentStrong} />
+          <Text style={[styles.signalStatLabel, { color: theme.colors.textSoft }]}>Urgency</Text>
+          <Text style={[styles.signalStatValue, { color: theme.colors.text }]}>
+            {result.urgencyScore.toFixed(1)}
+          </Text>
+        </View>
+        <View
+          style={[
+            styles.signalStatCard,
+            { backgroundColor: theme.colors.surfaceElevated, borderColor: theme.colors.stroke },
+          ]}
+        >
+          <Ionicons name="diamond-outline" size={16} color={theme.colors.accentStrong} />
+          <Text style={[styles.signalStatLabel, { color: theme.colors.textSoft }]}>Importance</Text>
+          <Text style={[styles.signalStatValue, { color: theme.colors.text }]}>
+            {result.importanceScore.toFixed(1)}
+          </Text>
+        </View>
+        <View
+          style={[
+            styles.signalStatCard,
+            { backgroundColor: theme.colors.surfaceElevated, borderColor: theme.colors.stroke },
+          ]}
+        >
+          <Ionicons name="compass-outline" size={16} color={theme.colors.accentStrong} />
+          <Text style={[styles.signalStatLabel, { color: theme.colors.textSoft }]}>Lane</Text>
+          <Text style={[styles.signalStatMini, { color: quadrantColors.solid }]}>
+            {QUADRANT_META[result.quadrant].shortLabel}
+          </Text>
+        </View>
+      </View>
 
       <NeuCard variant="flat" style={styles.nextCard}>
         <Text style={[styles.label, { color: theme.colors.textSoft }]}>What to do now</Text>
@@ -700,6 +803,11 @@ const styles = StyleSheet.create({
   },
   heroCard: {
     gap: 14,
+    position: "relative",
+    overflow: "hidden",
+  },
+  heroGradient: {
+    ...StyleSheet.absoluteFillObject,
   },
   heroTop: {
     flexDirection: "row",
@@ -733,6 +841,38 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     paddingHorizontal: 11,
     paddingVertical: 7,
+  },
+  signalStrip: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  signalStatCard: {
+    flex: 1,
+    minHeight: 92,
+    borderRadius: 22,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    gap: 4,
+  },
+  signalStatLabel: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontFamily: "IBMPlexSans_600SemiBold",
+    textTransform: "uppercase",
+    letterSpacing: 0.7,
+  },
+  signalStatValue: {
+    fontSize: 24,
+    lineHeight: 28,
+    fontFamily: "SpaceGrotesk_600SemiBold",
+  },
+  signalStatMini: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontFamily: "IBMPlexSans_600SemiBold",
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
   },
   factorText: {
     fontSize: 11,

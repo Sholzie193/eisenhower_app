@@ -1,3 +1,5 @@
+import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { useMemo, useState } from "react";
@@ -6,6 +8,7 @@ import { NeuCard } from "../src/components/NeuCard";
 import { NeuButton } from "../src/components/NeuButton";
 import { ItemCard } from "../src/components/ItemCard";
 import { ThemeToggleButton } from "../src/components/ThemeToggleButton";
+import { QUADRANT_META, QUADRANT_ORDER } from "../src/constants/quadrants";
 import { sortItemsByPriority } from "../src/logic/priority";
 import { useAppData } from "../src/providers/app-provider";
 import { useAppTheme } from "../src/providers/theme-provider";
@@ -37,6 +40,14 @@ export default function HomeScreen() {
   );
   const doNowCount = activeItems.filter((item) => item.quadrant === "doNow").length;
   const scheduleCount = activeItems.filter((item) => item.quadrant === "schedule").length;
+  const delegateCount = activeItems.filter((item) => item.quadrant === "delegate").length;
+  const eliminateCount = activeItems.filter((item) => item.quadrant === "eliminate").length;
+  const quadrantCounts = {
+    doNow: doNowCount,
+    schedule: scheduleCount,
+    delegate: delegateCount,
+    eliminate: eliminateCount,
+  } as const;
 
   const statusCopy = doNowCount
     ? `${doNowCount} saved ${doNowCount === 1 ? "decision still carries" : "decisions still carry"} pressure.`
@@ -71,39 +82,94 @@ export default function HomeScreen() {
 
   return (
     <ScreenShell contentStyle={styles.content}>
-      <View style={styles.headerBlock}>
-        <View style={styles.headerTopRow}>
-          <View style={styles.headerBadgeWrap}>
-            <Text style={[styles.eyebrow, { color: theme.colors.textSoft }]}>Decision Triage</Text>
-            <Text style={[styles.title, { color: theme.colors.text }]}>What’s on your mind?</Text>
+      <NeuCard style={styles.heroCard}>
+        <LinearGradient
+          pointerEvents="none"
+          colors={
+            theme.mode === "dark"
+              ? ["rgba(90, 124, 157, 0.16)", "rgba(10, 16, 23, 0)"]
+              : ["rgba(88, 122, 158, 0.16)", "rgba(250, 252, 254, 0)"]
+          }
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.heroGradient}
+        />
+        <View style={styles.heroHeader}>
+          <View style={styles.heroHeaderCopy}>
+            <View
+              style={[
+                styles.heroBadge,
+                { backgroundColor: theme.colors.surfaceElevated, borderColor: theme.colors.stroke },
+              ]}
+            >
+              <Ionicons name="sparkles-outline" size={14} color={theme.colors.accentStrong} />
+              <Text style={[styles.heroBadgeText, { color: theme.colors.text }]}>Decision Triage</Text>
+            </View>
+            <Text style={[styles.title, { color: theme.colors.text }]}>A calmer board for what matters next.</Text>
           </View>
           <ThemeToggleButton />
         </View>
         <Text style={[styles.subtitle, { color: theme.colors.textMuted }]}>
           One thing, a few competing things, or a messy thought. The app clears the board first, then ranks it.
         </Text>
-        <View style={styles.headerMetaRow}>
+        <View style={styles.heroStatsRow}>
           <View
             style={[
-              styles.headerMetaPill,
+              styles.heroStatCard,
               { backgroundColor: theme.colors.surfaceElevated, borderColor: theme.colors.stroke },
             ]}
           >
-            <Text style={[styles.headerMetaLabel, { color: theme.colors.textSoft }]}>Workflow</Text>
-            <Text style={[styles.headerMetaValue, { color: theme.colors.text }]}>AI cleanup + matrix read</Text>
+            <Text style={[styles.heroStatLabel, { color: theme.colors.textSoft }]}>Workflow</Text>
+            <Text style={[styles.heroStatValue, { color: theme.colors.text }]}>AI cleanup</Text>
+            <Text style={[styles.heroStatMeta, { color: theme.colors.textMuted }]}>then matrix read</Text>
           </View>
           <View
             style={[
-              styles.headerMetaPill,
+              styles.heroStatCard,
               { backgroundColor: theme.colors.surfaceElevated, borderColor: theme.colors.stroke },
             ]}
           >
-            <Text style={[styles.headerMetaLabel, { color: theme.colors.textSoft }]}>Active board</Text>
-            <Text style={[styles.headerMetaValue, { color: theme.colors.text }]}>
-              {activeItems.length} saved, {doNowCount} loud
+            <Text style={[styles.heroStatLabel, { color: theme.colors.textSoft }]}>Board load</Text>
+            <Text style={[styles.heroStatValue, { color: theme.colors.text }]}>{activeItems.length} active</Text>
+            <Text style={[styles.heroStatMeta, { color: theme.colors.textMuted }]}>
+              {doNowCount} loud right now
             </Text>
           </View>
         </View>
+      </NeuCard>
+
+      <View style={styles.sectionHeader}>
+        <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Board shape</Text>
+        <Text style={[styles.sectionHint, { color: theme.colors.textSoft }]}>Four lanes, one glance</Text>
+      </View>
+
+      <View style={styles.quadrantGrid}>
+        {QUADRANT_ORDER.map((quadrant) => {
+          const colors = theme.quadrants[quadrant];
+          return (
+            <View
+              key={quadrant}
+              style={[
+                styles.quadrantCard,
+                {
+                  backgroundColor: theme.colors.surfaceElevated,
+                  borderColor: theme.colors.stroke,
+                },
+              ]}
+            >
+              <View style={[styles.quadrantAccent, { backgroundColor: colors.solid }]} />
+              <Text style={[styles.quadrantCount, { color: theme.colors.text }]}>
+                {quadrantCounts[quadrant]}
+              </Text>
+              <Text style={[styles.quadrantLabel, { color: colors.solid }]}>
+                {QUADRANT_META[quadrant].shortLabel}
+              </Text>
+              <Text style={[styles.quadrantMeta, { color: theme.colors.textMuted }]}>
+                {QUADRANT_META[quadrant].description}
+              </Text>
+            </View>
+          );
+        })}
       </View>
 
       <NeuCard style={styles.captureCard}>
@@ -114,7 +180,7 @@ export default function HomeScreen() {
         <View style={styles.captureHeader}>
           <View style={styles.captureHeaderCopy}>
             <Text style={[styles.captureKicker, { color: theme.colors.textSoft }]}>Clarity workspace</Text>
-            <Text style={[styles.captureTitle, { color: theme.colors.text }]}>Dump the full situation.</Text>
+            <Text style={[styles.captureTitle, { color: theme.colors.text }]}>Drop in the whole situation.</Text>
           </View>
           <View
             style={[
@@ -142,6 +208,15 @@ export default function HomeScreen() {
             pointerEvents="none"
             style={[styles.inputShellShine, { backgroundColor: theme.colors.highlight }]}
           />
+          <View
+            pointerEvents="none"
+            style={[
+              styles.inputIconWrap,
+              { backgroundColor: theme.colors.surfaceElevated, borderColor: theme.colors.stroke },
+            ]}
+          >
+            <Ionicons name="chatbox-ellipses-outline" size={16} color={theme.colors.accentStrong} />
+          </View>
           <TextInput
             value={input}
             onChangeText={setInput}
@@ -248,11 +323,14 @@ export default function HomeScreen() {
         </View>
       </NeuCard>
 
-      <NeuCard variant="flat" style={styles.manualCard}>
-        <Text style={[styles.manualTitle, { color: theme.colors.text }]}>Need a fuller breakdown?</Text>
-        <Text style={[styles.manualCopy, { color: theme.colors.textMuted }]}>
-          The manual path still exists when you want to adjust the signals yourself.
-        </Text>
+      <View style={styles.manualPanel}>
+        <View style={styles.manualPanelCopy}>
+          <Text style={[styles.manualEyebrow, { color: theme.colors.textSoft }]}>Manual lane</Text>
+          <Text style={[styles.manualTitle, { color: theme.colors.text }]}>Need a fuller breakdown?</Text>
+          <Text style={[styles.manualCopy, { color: theme.colors.textMuted }]}>
+            The manual path is still here when you want to tune the decision signals yourself.
+          </Text>
+        </View>
         <NeuButton
           label="Use manual breakdown"
           variant="secondary"
@@ -261,7 +339,7 @@ export default function HomeScreen() {
             router.push("/add");
           }}
         />
-      </NeuCard>
+      </View>
 
       <View style={styles.sectionHeader}>
         <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Recent saved decisions</Text>
@@ -292,63 +370,120 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   content: {
-    gap: 18,
+    gap: 20,
   },
-  headerBlock: {
-    gap: 12,
-    paddingTop: 8,
+  heroCard: {
+    position: "relative",
+    gap: 16,
+    overflow: "hidden",
   },
-  headerTopRow: {
+  heroGradient: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  heroHeader: {
     flexDirection: "row",
-    alignItems: "flex-start",
     justifyContent: "space-between",
+    alignItems: "flex-start",
     gap: 14,
   },
-  headerBadgeWrap: {
+  heroHeaderCopy: {
     flex: 1,
-    gap: 8,
+    gap: 10,
   },
-  eyebrow: {
+  heroBadge: {
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  heroBadgeText: {
     fontSize: 12,
     lineHeight: 16,
     fontFamily: "IBMPlexSans_600SemiBold",
-    textTransform: "uppercase",
-    letterSpacing: 1,
+    letterSpacing: 0.2,
   },
   title: {
-    fontSize: 42,
-    lineHeight: 46,
+    fontSize: 36,
+    lineHeight: 40,
     fontFamily: "SpaceGrotesk_600SemiBold",
+    maxWidth: 300,
   },
   subtitle: {
     fontSize: 15,
-    lineHeight: 23,
+    lineHeight: 22,
     fontFamily: "IBMPlexSans_500Medium",
     maxWidth: 420,
   },
-  headerMetaRow: {
+  heroStatsRow: {
     flexDirection: "row",
     gap: 10,
   },
-  headerMetaPill: {
+  heroStatCard: {
     flex: 1,
-    borderRadius: 20,
+    borderRadius: 22,
     borderWidth: 1,
     paddingHorizontal: 14,
-    paddingVertical: 12,
+    paddingVertical: 14,
     gap: 4,
   },
-  headerMetaLabel: {
+  heroStatLabel: {
     fontSize: 11,
     lineHeight: 14,
     fontFamily: "IBMPlexSans_600SemiBold",
     textTransform: "uppercase",
     letterSpacing: 0.7,
   },
-  headerMetaValue: {
-    fontSize: 13,
-    lineHeight: 18,
+  heroStatValue: {
+    fontSize: 20,
+    lineHeight: 24,
+    fontFamily: "SpaceGrotesk_600SemiBold",
+  },
+  heroStatMeta: {
+    fontSize: 12,
+    lineHeight: 17,
     fontFamily: "IBMPlexSans_600SemiBold",
+  },
+  quadrantGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+  },
+  quadrantCard: {
+    width: "47%",
+    minHeight: 128,
+    borderRadius: 24,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    gap: 6,
+    overflow: "hidden",
+  },
+  quadrantAccent: {
+    width: 40,
+    height: 4,
+    borderRadius: 999,
+    marginBottom: 2,
+  },
+  quadrantCount: {
+    fontSize: 28,
+    lineHeight: 30,
+    fontFamily: "SpaceGrotesk_600SemiBold",
+  },
+  quadrantLabel: {
+    fontSize: 13,
+    lineHeight: 17,
+    fontFamily: "IBMPlexSans_600SemiBold",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  quadrantMeta: {
+    fontSize: 12,
+    lineHeight: 17,
+    fontFamily: "IBMPlexSans_500Medium",
   },
   captureCard: {
     gap: 18,
@@ -373,7 +508,7 @@ const styles = StyleSheet.create({
   },
   captureHeaderCopy: {
     flex: 1,
-    gap: 4,
+    gap: 6,
   },
   captureKicker: {
     fontSize: 11,
@@ -383,10 +518,10 @@ const styles = StyleSheet.create({
     letterSpacing: 0.9,
   },
   captureTitle: {
-    fontSize: 24,
-    lineHeight: 29,
+    fontSize: 26,
+    lineHeight: 31,
     fontFamily: "SpaceGrotesk_600SemiBold",
-    maxWidth: 240,
+    maxWidth: 260,
   },
   captureBadge: {
     borderRadius: 999,
@@ -404,6 +539,7 @@ const styles = StyleSheet.create({
     borderRadius: 30,
     borderWidth: 1,
     overflow: "hidden",
+    minHeight: 256,
   },
   inputShellShine: {
     position: "absolute",
@@ -412,10 +548,23 @@ const styles = StyleSheet.create({
     right: 0,
     height: 1,
   },
+  inputIconWrap: {
+    position: "absolute",
+    top: 16,
+    right: 16,
+    width: 36,
+    height: 36,
+    borderRadius: 14,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 1,
+  },
   input: {
     height: 232,
     paddingHorizontal: 22,
     paddingVertical: 22,
+    paddingRight: 60,
     fontSize: 17,
     lineHeight: 25,
     fontFamily: "IBMPlexSans_500Medium",
@@ -479,8 +628,8 @@ const styles = StyleSheet.create({
     flex: 1,
     borderRadius: 22,
     paddingHorizontal: 14,
-    paddingVertical: 12,
-    gap: 3,
+    paddingVertical: 13,
+    gap: 4,
     borderWidth: 1,
   },
   metricValue: {
@@ -493,8 +642,20 @@ const styles = StyleSheet.create({
     lineHeight: 14,
     fontFamily: "IBMPlexSans_500Medium",
   },
-  manualCard: {
-    gap: 8,
+  manualPanel: {
+    gap: 14,
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+  },
+  manualPanelCopy: {
+    gap: 6,
+  },
+  manualEyebrow: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontFamily: "IBMPlexSans_600SemiBold",
+    textTransform: "uppercase",
+    letterSpacing: 0.7,
   },
   manualTitle: {
     fontSize: 18,

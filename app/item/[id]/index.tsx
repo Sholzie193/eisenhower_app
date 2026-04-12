@@ -1,3 +1,5 @@
+import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
 import { Redirect, router, useLocalSearchParams } from "expo-router";
 import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
 import { HeaderButton } from "../../../src/components/HeaderButton";
@@ -32,6 +34,17 @@ export default function ItemDetailScreen() {
       </View>
 
       <NeuCard style={styles.heroCard}>
+        <LinearGradient
+          pointerEvents="none"
+          colors={
+            theme.mode === "dark"
+              ? ["rgba(90, 124, 157, 0.16)", "rgba(10, 16, 23, 0)"]
+              : ["rgba(88, 122, 158, 0.16)", "rgba(250, 252, 254, 0)"]
+          }
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.heroGradient}
+        />
         <View style={styles.heroTop}>
           <QuadrantPill quadrant={item.quadrant} />
           <Text style={[styles.timestamp, { color: theme.colors.textSoft }]}>
@@ -47,14 +60,26 @@ export default function ItemDetailScreen() {
       </NeuCard>
 
       <View style={styles.metricRow}>
-        <NeuCard variant="flat" style={styles.metricCard}>
+        <View
+          style={[
+            styles.metricCard,
+            { backgroundColor: theme.colors.surfaceElevated, borderColor: theme.colors.stroke },
+          ]}
+        >
+          <Ionicons name="flash-outline" size={16} color={theme.colors.accentStrong} />
           <Text style={[styles.metricLabel, { color: theme.colors.textSoft }]}>Urgency</Text>
           <Text style={[styles.metricValue, { color: theme.colors.text }]}>{item.urgencyScore.toFixed(1)}</Text>
-        </NeuCard>
-        <NeuCard variant="flat" style={styles.metricCard}>
+        </View>
+        <View
+          style={[
+            styles.metricCard,
+            { backgroundColor: theme.colors.surfaceElevated, borderColor: theme.colors.stroke },
+          ]}
+        >
+          <Ionicons name="diamond-outline" size={16} color={theme.colors.accentStrong} />
           <Text style={[styles.metricLabel, { color: theme.colors.textSoft }]}>Importance</Text>
           <Text style={[styles.metricValue, { color: theme.colors.text }]}>{item.importanceScore.toFixed(1)}</Text>
-        </NeuCard>
+        </View>
       </View>
 
       <NeuCard variant="flat" style={styles.sectionCard}>
@@ -145,6 +170,11 @@ const styles = StyleSheet.create({
   },
   heroCard: {
     gap: 12,
+    position: "relative",
+    overflow: "hidden",
+  },
+  heroGradient: {
+    ...StyleSheet.absoluteFillObject,
   },
   heroTop: {
     flexDirection: "row",
@@ -183,6 +213,10 @@ const styles = StyleSheet.create({
   metricCard: {
     flex: 1,
     gap: 8,
+    borderWidth: 1,
+    borderRadius: 22,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
   },
   metricLabel: {
     fontSize: 12,

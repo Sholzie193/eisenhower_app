@@ -89,19 +89,19 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
   },
   titleBlock: {
-    gap: 6,
+    gap: 8,
   },
   title: {
-    fontSize: 32,
-    lineHeight: 36,
+    fontSize: 34,
+    lineHeight: 39,
     fontFamily: "SpaceGrotesk_600SemiBold",
   },
   subtitle: {
     fontSize: 14,
-    lineHeight: 20,
+    lineHeight: 22,
     fontFamily: "IBMPlexSans_500Medium",
   },
   formCard: {
-    gap: 14,
+    gap: 16,
   },
 });

@@ -19,8 +19,9 @@ export const QuadrantPill = ({ quadrant, compact = false, style }: QuadrantPillP
         styles.base,
         {
           backgroundColor: colors.tint,
-          paddingHorizontal: compact ? 10 : 12,
-          minHeight: compact ? 26 : 30,
+          paddingHorizontal: compact ? 11 : 13,
+          minHeight: compact ? 28 : 32,
+          borderColor: theme.mode === "dark" ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.7)",
         },
         style,
       ]}
@@ -35,10 +36,11 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     alignSelf: "flex-start",
     justifyContent: "center",
+    borderWidth: 1,
   },
   text: {
     fontSize: 12,
     fontFamily: "IBMPlexSans_600SemiBold",
-    letterSpacing: 0.15,
+    letterSpacing: 0.2,
   },
 });

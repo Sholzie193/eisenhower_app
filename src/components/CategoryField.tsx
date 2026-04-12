@@ -136,15 +136,15 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
   fieldCard: {
-    borderRadius: 18,
+    borderRadius: 22,
     paddingVertical: 0,
     paddingHorizontal: 0,
     overflow: "hidden",
   },
   trigger: {
-    minHeight: 62,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+    minHeight: 66,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
@@ -157,7 +157,7 @@ const styles = StyleSheet.create({
   value: {
     fontFamily: "IBMPlexSans_500Medium",
     fontSize: 15,
-    lineHeight: 20,
+    lineHeight: 21,
   },
   helper: {
     fontFamily: "IBMPlexSans_500Medium",
@@ -166,7 +166,7 @@ const styles = StyleSheet.create({
   },
   menu: {
     borderTopWidth: 1,
-    padding: 12,
+    padding: 14,
     gap: 10,
   },
   optionsWrap: {
@@ -175,8 +175,8 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   option: {
-    minHeight: 36,
-    borderRadius: 12,
+    minHeight: 38,
+    borderRadius: 14,
     borderWidth: 1,
     paddingHorizontal: 12,
     justifyContent: "center",

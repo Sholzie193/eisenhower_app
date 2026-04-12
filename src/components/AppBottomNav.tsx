@@ -1,5 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router, usePathname } from "expo-router";
+import { LinearGradient } from "expo-linear-gradient";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAppData } from "../providers/app-provider";
@@ -7,7 +8,7 @@ import { useAppTheme } from "../providers/theme-provider";
 import { getRaisedShadow } from "../theme/shadows";
 import { triggerSelectionHaptic } from "../utils/haptics";
 
-export const APP_BOTTOM_NAV_HEIGHT = 78;
+export const APP_BOTTOM_NAV_HEIGHT = 82;
 export const APP_BOTTOM_NAV_MARGIN = 8;
 
 type NavKey = "clarity" | "manual" | "result";
@@ -93,15 +94,17 @@ export const AppBottomNav = () => {
           pointerEvents="none"
           style={[styles.halo, { backgroundColor: theme.colors.accentWash }]}
         />
-        <View
+        <LinearGradient
           pointerEvents="none"
-        style={[
-          styles.backdrop,
-          {
-            backgroundColor: "rgba(20, 26, 34, 0.96)",
-          },
-        ]}
-      />
+          colors={
+            theme.mode === "dark"
+              ? ["rgba(24, 34, 46, 0.96)", "rgba(13, 20, 28, 0.94)"]
+              : ["rgba(251, 253, 255, 0.96)", "rgba(229, 237, 245, 0.94)"]
+          }
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.backdrop}
+        />
         <View
           pointerEvents="none"
           style={[styles.shine, { backgroundColor: theme.colors.highlight }]}
@@ -125,7 +128,7 @@ export const AppBottomNav = () => {
                   backgroundColor: active ? theme.colors.surfaceElevated : "transparent",
                   borderColor: active ? theme.colors.stroke : "transparent",
                   opacity: item.enabled ? (pressed ? 0.82 : 1) : 0.42,
-                  transform: [{ translateY: pressed ? 1 : 0 }],
+                  transform: [{ translateY: pressed ? 1 : 0 }, { scale: pressed ? 0.985 : 1 }],
                 },
               ]}
             >
@@ -159,12 +162,12 @@ const styles = StyleSheet.create({
     right: 16,
   },
   shell: {
-    minHeight: APP_BOTTOM_NAV_HEIGHT,
-    borderRadius: 24,
+    minHeight: 82,
+    borderRadius: 30,
     borderWidth: 1,
-    padding: 7,
+    padding: 8,
     flexDirection: "row",
-    gap: 6,
+    gap: 8,
     overflow: "hidden",
     position: "relative",
   },
@@ -176,9 +179,9 @@ const styles = StyleSheet.create({
     top: -18,
     left: "22%",
     right: "22%",
-    height: 56,
+    height: 68,
     borderRadius: 999,
-    opacity: 0.6,
+    opacity: 0.75,
   },
   shine: {
     position: "absolute",
@@ -189,16 +192,16 @@ const styles = StyleSheet.create({
   },
   item: {
     flex: 1,
-    minHeight: 56,
-    borderRadius: 16,
+    minHeight: 58,
+    borderRadius: 20,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
-    gap: 4,
+    gap: 6,
   },
   label: {
     fontSize: 11,
     fontFamily: "IBMPlexSans_600SemiBold",
-    letterSpacing: 0.15,
+    letterSpacing: 0.2,
   },
 });

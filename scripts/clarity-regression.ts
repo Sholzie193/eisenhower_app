@@ -157,6 +157,20 @@ const cases: RegressionCase[] = [
     allowedFirstTitles: ["Send revised contract", "Follow up with referral lead", "Prepare slides for Friday"],
   },
   {
+    name: "client-reply-dedupe-board",
+    prompt:
+      "I need the clearest next move. I can reply to a client today, respond to that same client today, fix a broken signup form, and organize files.",
+    requiredTitles: ["Reply to client today", "Fix signup issue", "Organize files"],
+    allowedFirstTitles: ["Reply to client today", "Fix signup issue"],
+  },
+  {
+    name: "client-expects-reply-board",
+    prompt:
+      "I need the clearest next move. A client expects a reply from me today. I can reply to the client today, reply to warm leads, and fix website issues. I am tired.",
+    requiredTitles: ["Reply to client today", "Reply to warm leads", "Fix website issues"],
+    allowedFirstTitles: ["Reply to client today", "Fix website issues"],
+  },
+  {
     name: "answer-collaborator-board",
     prompt:
       "I need to choose the clearest next step. I can reconcile recent subscriptions and refunds, rewrite the hero section on my homepage, answer a collaborator waiting for approval, and package a customer story into a case study.",
@@ -303,6 +317,63 @@ const structuredCases: StructuredRegressionCase[] = [
       "Answer collaborator waiting for approval",
       "Finish case study update",
     ],
+  },
+  {
+    name: "structured-dedupes-same-client-reply-variants",
+    prompt:
+      "I need the clearest next move. I can reply to a client today, respond to that same client today, fix a broken signup form, and organize files.",
+    cleanup: {
+      considered_items: [
+        "Reply to a client today",
+        "Respond to that same client today",
+        "Fix broken signup form",
+        "Organize files",
+      ],
+      context_notes: [],
+      decision_type: "foggy_dump",
+      decision_groups: [
+        {
+          id: "group-1",
+          label: "Client and site work",
+          items: ["Reply to a client today", "Respond to that same client today", "Fix broken signup form"],
+          candidate_relationship: "tasks",
+        },
+        {
+          id: "group-2",
+          label: "Admin",
+          items: ["Organize files"],
+          candidate_relationship: "tasks",
+        },
+      ],
+    },
+    requiredTitles: ["Reply to client today", "Fix signup issue", "Organize files"],
+    forbiddenTitles: ["Respond to", "Respond to that client today", "Reply to a client today"],
+  },
+  {
+    name: "structured-dedupes-client-expects-reply-variant",
+    prompt:
+      "I need the clearest next move. A client expects a reply from me today. I can reply to the client today, reply to warm leads, and fix website issues. I am tired.",
+    cleanup: {
+      considered_items: ["Reply from me today", "Reply to client today", "Reply to warm leads", "Fix website issues"],
+      context_notes: ["Client reply has a real deadline today", "User is tired"],
+      decision_type: "foggy_dump",
+      decision_groups: [
+        {
+          id: "group-1",
+          label: "Immediate",
+          items: ["Reply from me today", "Reply to client today"],
+          candidate_relationship: "tasks",
+        },
+        {
+          id: "group-2",
+          label: "Other",
+          items: ["Reply to warm leads", "Fix website issues"],
+          candidate_relationship: "tasks",
+        },
+      ],
+    },
+    requiredTitles: ["Reply to client today", "Reply to warm leads", "Fix website issues"],
+    forbiddenTitles: ["Reply from me today"],
   },
 ];
 

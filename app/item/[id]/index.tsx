@@ -144,7 +144,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   heroCard: {
-    gap: 10,
+    gap: 12,
   },
   heroTop: {
     flexDirection: "row",
@@ -157,8 +157,8 @@ const styles = StyleSheet.create({
     fontFamily: "IBMPlexSans_500Medium",
   },
   title: {
-    fontSize: 30,
-    lineHeight: 34,
+    fontSize: 32,
+    lineHeight: 36,
     fontFamily: "SpaceGrotesk_600SemiBold",
   },
   recommendation: {
@@ -178,11 +178,11 @@ const styles = StyleSheet.create({
   },
   metricRow: {
     flexDirection: "row",
-    gap: 10,
+    gap: 12,
   },
   metricCard: {
     flex: 1,
-    gap: 6,
+    gap: 8,
   },
   metricLabel: {
     fontSize: 12,
@@ -196,7 +196,7 @@ const styles = StyleSheet.create({
     fontFamily: "IBMPlexSans_700Bold",
   },
   sectionCard: {
-    gap: 10,
+    gap: 12,
   },
   sectionLabel: {
     fontSize: 12,

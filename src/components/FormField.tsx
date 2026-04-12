@@ -56,13 +56,13 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
   inputCard: {
-    borderRadius: 18,
-    paddingVertical: 13,
-    paddingHorizontal: 14,
+    borderRadius: 24,
+    paddingVertical: 15,
+    paddingHorizontal: 18,
   },
   input: {
     fontFamily: "IBMPlexSans_500Medium",
     fontSize: 15,
-    lineHeight: 21,
+    lineHeight: 22,
   },
 });

@@ -63,17 +63,17 @@ export const SegmentedControl = <T extends string>({
 
 const styles = StyleSheet.create({
   outer: {
-    padding: 4,
-    borderRadius: 20,
+    padding: 5,
+    borderRadius: 26,
   },
   row: {
     flexDirection: "row",
-    gap: 4,
+    gap: 5,
   },
   option: {
     flex: 1,
-    minHeight: 48,
-    borderRadius: 14,
+    minHeight: 50,
+    borderRadius: 18,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
@@ -85,7 +85,7 @@ const styles = StyleSheet.create({
   label: {
     width: "100%",
     fontSize: 10,
-    lineHeight: 13,
+    lineHeight: 14,
     textAlign: "center",
     fontFamily: "IBMPlexSans_600SemiBold",
   },

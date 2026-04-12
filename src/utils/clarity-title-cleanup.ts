@@ -48,7 +48,7 @@ const TITLE_PREFIX_PATTERNS = [
 ];
 
 const TRAILING_FRAGMENT_PATTERNS = [
-  /\s*,?\s+(?:because|since|so that|so|which|that|if|when|while|although|though|despite)\b.*$/i,
+  /\s*,?\s+(?:because|since|so that|so|which|if|when|while|although|though|despite)\b.*$/i,
   /\s+\band\s+i\b.*$/i,
   /\s+\bbut\s+i\b.*$/i,
   /\s+\bso\s+i\b.*$/i,
@@ -74,6 +74,16 @@ const OBJECT_CANONICAL_RULES: Array<{ pattern: RegExp; title: string }> = [
   {
     pattern: /\bclient\b.*\bwaiting\b.*\brevised?\s+proposal\b.*\btoday\b/i,
     title: "Send revised proposal today",
+  },
+  {
+    pattern:
+      /\bclient\b.*\b(?:expects?|already expects|waiting(?:\s+on)?|owe(?:s)?(?:\s+them)?\s+(?:a\s+)?)\b.*\breply(?:\s+from\s+me)?\b.*\btoday\b/i,
+    title: "Reply to client today",
+  },
+  {
+    pattern:
+      /\bclient\b.*\b(?:expects?|already expects|waiting(?:\s+on)?|owe(?:s)?(?:\s+them)?\s+(?:a\s+)?)\b.*\breply(?:\s+from\s+me)?\b/i,
+    title: "Reply to client",
   },
   {
     pattern: /\b(?:review|approve)\b.*\bdraft\b.*\bwaiting\b/i,
@@ -598,7 +608,11 @@ const DEDUPE_SIGNATURE_RULES: Array<{ pattern: RegExp; key: string }> = [
   { pattern: /\bcontact\s+form\b/i, key: "fix|contact|form" },
   { pattern: /\bonboarding\b.*\bbug\b/i, key: "fix|onboarding|bug" },
   { pattern: /\bbooking\s+link\b/i, key: "fix|booking|link" },
-  { pattern: /\b(?:reply|respond)(?:\s+to)?\s+(?:(?:a|the)\s+)?client\b/i, key: "reply|client" },
+  {
+    pattern:
+      /\b(?:reply|respond)(?:\s+to)?\s+(?:(?:a|an|the|this|that)\s+)?(?:(?:same|current|existing)\s+)?client\b/i,
+    key: "reply|client",
+  },
   { pattern: /\bfollow up(?: with)?\b.*\bclient\b.*\boutstanding\b.*\brevision\b/i, key: "followup|client|revision" },
   { pattern: /\bwarm\s+leads?\b/i, key: "reply|warm|lead" },
   { pattern: /\boverdue\b.*\bpayment\b/i, key: "followup|payment|overdue" },
@@ -754,7 +768,7 @@ const buildLooseCanonicalTaskKey = (value: string) => {
 
   const objectText = title
     .replace(
-      /^(reply(?:\s+to)?|follow up(?:\s+with)?|reach out(?:\s+to)?|clean up|cleanup|reorgani[sz]e|organi[sz]e|record|send|contact|call|message|fix|finish|complete|review|submit|email|prepare|ask|pay|invoice|write|draft|build|update|sort|rehearse|publish|post|back up|backup|approve|repair|rewrite|troubleshoot|package|confirm|reconcile|trim|archive|label)\b/i,
+      /^(reply(?:\s+to)?|respond(?:\s+to)?|follow up(?:\s+with)?|reach out(?:\s+to)?|clean up|cleanup|clean|reorgani[sz]e|organi[sz]e|record|send|contact|call|message|fix|finish|complete|review|submit|email|prepare|ask|pay|invoice|write|draft|build|update|edit|sort|polish|revise|rehearse|publish|post|back up|backup|approve|repair|rewrite|troubleshoot|package|confirm|reconcile|trim|archive|label)\b/i,
       ""
     )
     .toLowerCase();
@@ -782,6 +796,12 @@ const buildLooseCanonicalTaskKey = (value: string) => {
           "small",
           "one",
           "some",
+          "me",
+          "to",
+          "with",
+          "about",
+          "from",
+          "on",
           "for",
           "before",
           "after",
@@ -827,6 +847,7 @@ const looksLikeRejectedFragment = (value: string) =>
   CONSEQUENCE_ONLY_PATTERNS.some((pattern) => pattern.test(value)) ||
   /\bmatters?\s+(?:because|since|as)\b/i.test(value) ||
   /^(?:i|we)\b/i.test(value) ||
+  /^(?:reply|respond)\s+from\s+me\b/i.test(value) ||
   /\b(?:what should|which one|clearest next move|should i|do i|whether to)\b/i.test(value) ||
   /\b(?:and i|but i|so i)\b/i.test(value);
 

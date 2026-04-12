@@ -296,23 +296,23 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
   },
   titleBlock: {
-    gap: 6,
+    gap: 8,
   },
   title: {
-    fontSize: 32,
-    lineHeight: 36,
+    fontSize: 34,
+    lineHeight: 39,
     fontFamily: "SpaceGrotesk_600SemiBold",
   },
   subtitle: {
     fontSize: 14,
-    lineHeight: 21,
+    lineHeight: 22,
     fontFamily: "IBMPlexSans_500Medium",
   },
   heroCard: {
-    gap: 10,
+    gap: 12,
   },
   sectionCard: {
-    gap: 10,
+    gap: 12,
   },
   label: {
     fontSize: 12,
@@ -321,24 +321,24 @@ const styles = StyleSheet.create({
     letterSpacing: 0.9,
   },
   primaryTitle: {
-    fontSize: 30,
-    lineHeight: 34,
+    fontSize: 32,
+    lineHeight: 36,
     fontFamily: "SpaceGrotesk_600SemiBold",
   },
   body: {
     fontSize: 15,
-    lineHeight: 22,
+    lineHeight: 23,
     fontFamily: "IBMPlexSans_500Medium",
   },
   bodyLead: {
     fontSize: 19,
     lineHeight: 25,
-    fontFamily: "SpaceGrotesk_500Medium",
+    fontFamily: "SpaceGrotesk_600SemiBold",
   },
   boardList: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 8,
+    gap: 10,
   },
   boardChip: {
     borderRadius: 999,
@@ -365,7 +365,7 @@ const styles = StyleSheet.create({
   rowTitle: {
     fontSize: 16,
     lineHeight: 21,
-    fontFamily: "SpaceGrotesk_500Medium",
+    fontFamily: "SpaceGrotesk_600SemiBold",
   },
   rowCopy: {
     fontSize: 14,

@@ -72,10 +72,10 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   chip: {
-    minHeight: 40,
-    borderRadius: 14,
+    minHeight: 42,
+    borderRadius: 16,
     borderWidth: 1,
-    paddingHorizontal: 12,
+    paddingHorizontal: 13,
     alignItems: "center",
     justifyContent: "center",
     shadowOffset: { width: 0, height: 6 },
@@ -85,5 +85,6 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 13,
     fontFamily: "IBMPlexSans_600SemiBold",
+    letterSpacing: 0.1,
   },
 });

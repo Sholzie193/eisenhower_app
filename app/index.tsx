@@ -5,6 +5,7 @@ import { ScreenShell } from "../src/components/ScreenShell";
 import { NeuCard } from "../src/components/NeuCard";
 import { NeuButton } from "../src/components/NeuButton";
 import { ItemCard } from "../src/components/ItemCard";
+import { ThemeToggleButton } from "../src/components/ThemeToggleButton";
 import { sortItemsByPriority } from "../src/logic/priority";
 import { useAppData } from "../src/providers/app-provider";
 import { useAppTheme } from "../src/providers/theme-provider";
@@ -71,11 +72,38 @@ export default function HomeScreen() {
   return (
     <ScreenShell contentStyle={styles.content}>
       <View style={styles.headerBlock}>
-        <Text style={[styles.eyebrow, { color: theme.colors.textSoft }]}>Decision Triage</Text>
-        <Text style={[styles.title, { color: theme.colors.text }]}>What’s on your mind?</Text>
+        <View style={styles.headerTopRow}>
+          <View style={styles.headerBadgeWrap}>
+            <Text style={[styles.eyebrow, { color: theme.colors.textSoft }]}>Decision Triage</Text>
+            <Text style={[styles.title, { color: theme.colors.text }]}>What’s on your mind?</Text>
+          </View>
+          <ThemeToggleButton />
+        </View>
         <Text style={[styles.subtitle, { color: theme.colors.textMuted }]}>
-          One thing, a few competing things, or a messy thought. The app will reduce the fog first.
+          One thing, a few competing things, or a messy thought. The app clears the board first, then ranks it.
         </Text>
+        <View style={styles.headerMetaRow}>
+          <View
+            style={[
+              styles.headerMetaPill,
+              { backgroundColor: theme.colors.surfaceElevated, borderColor: theme.colors.stroke },
+            ]}
+          >
+            <Text style={[styles.headerMetaLabel, { color: theme.colors.textSoft }]}>Workflow</Text>
+            <Text style={[styles.headerMetaValue, { color: theme.colors.text }]}>AI cleanup + matrix read</Text>
+          </View>
+          <View
+            style={[
+              styles.headerMetaPill,
+              { backgroundColor: theme.colors.surfaceElevated, borderColor: theme.colors.stroke },
+            ]}
+          >
+            <Text style={[styles.headerMetaLabel, { color: theme.colors.textSoft }]}>Active board</Text>
+            <Text style={[styles.headerMetaValue, { color: theme.colors.text }]}>
+              {activeItems.length} saved, {doNowCount} loud
+            </Text>
+          </View>
+        </View>
       </View>
 
       <NeuCard style={styles.captureCard}>
@@ -122,7 +150,7 @@ export default function HomeScreen() {
             multiline
             scrollEnabled
             textAlignVertical="top"
-            keyboardAppearance="dark"
+            keyboardAppearance={theme.mode === "dark" ? "dark" : "light"}
             selectionColor={theme.colors.accentStrong}
             style={[
               styles.input,
@@ -190,15 +218,30 @@ export default function HomeScreen() {
         <Text style={[styles.statusLabel, { color: theme.colors.textSoft }]}>Saved read</Text>
         <Text style={[styles.statusTitle, { color: theme.colors.text }]}>{statusCopy}</Text>
         <View style={styles.metricRow}>
-          <View style={[styles.metricPill, { backgroundColor: theme.colors.surfaceInset }]}>
+          <View
+            style={[
+              styles.metricPill,
+              { backgroundColor: theme.colors.surfaceInset, borderColor: theme.colors.stroke },
+            ]}
+          >
             <Text style={[styles.metricValue, { color: theme.colors.text }]}>{doNowCount}</Text>
             <Text style={[styles.metricText, { color: theme.colors.textMuted }]}>need action</Text>
           </View>
-          <View style={[styles.metricPill, { backgroundColor: theme.colors.surfaceInset }]}>
+          <View
+            style={[
+              styles.metricPill,
+              { backgroundColor: theme.colors.surfaceInset, borderColor: theme.colors.stroke },
+            ]}
+          >
             <Text style={[styles.metricValue, { color: theme.colors.text }]}>{scheduleCount}</Text>
             <Text style={[styles.metricText, { color: theme.colors.textMuted }]}>worth planning</Text>
           </View>
-          <View style={[styles.metricPill, { backgroundColor: theme.colors.surfaceInset }]}>
+          <View
+            style={[
+              styles.metricPill,
+              { backgroundColor: theme.colors.surfaceInset, borderColor: theme.colors.stroke },
+            ]}
+          >
             <Text style={[styles.metricValue, { color: theme.colors.text }]}>{activeItems.length}</Text>
             <Text style={[styles.metricText, { color: theme.colors.textMuted }]}>saved</Text>
           </View>
@@ -249,11 +292,21 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   content: {
-    gap: 16,
+    gap: 18,
   },
   headerBlock: {
+    gap: 12,
+    paddingTop: 8,
+  },
+  headerTopRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 14,
+  },
+  headerBadgeWrap: {
+    flex: 1,
     gap: 8,
-    paddingTop: 10,
   },
   eyebrow: {
     fontSize: 12,
@@ -263,20 +316,44 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
   },
   title: {
-    fontSize: 38,
-    lineHeight: 42,
+    fontSize: 42,
+    lineHeight: 46,
     fontFamily: "SpaceGrotesk_600SemiBold",
   },
   subtitle: {
     fontSize: 15,
-    lineHeight: 22,
+    lineHeight: 23,
     fontFamily: "IBMPlexSans_500Medium",
     maxWidth: 420,
   },
+  headerMetaRow: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  headerMetaPill: {
+    flex: 1,
+    borderRadius: 20,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    gap: 4,
+  },
+  headerMetaLabel: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontFamily: "IBMPlexSans_600SemiBold",
+    textTransform: "uppercase",
+    letterSpacing: 0.7,
+  },
+  headerMetaValue: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontFamily: "IBMPlexSans_600SemiBold",
+  },
   captureCard: {
-    gap: 14,
-    paddingTop: 18,
-    paddingBottom: 18,
+    gap: 18,
+    paddingTop: 22,
+    paddingBottom: 22,
     position: "relative",
   },
   captureGlow: {
@@ -306,8 +383,8 @@ const styles = StyleSheet.create({
     letterSpacing: 0.9,
   },
   captureTitle: {
-    fontSize: 21,
-    lineHeight: 25,
+    fontSize: 24,
+    lineHeight: 29,
     fontFamily: "SpaceGrotesk_600SemiBold",
     maxWidth: 240,
   },
@@ -324,7 +401,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.15,
   },
   inputShell: {
-    borderRadius: 24,
+    borderRadius: 30,
     borderWidth: 1,
     overflow: "hidden",
   },
@@ -336,9 +413,9 @@ const styles = StyleSheet.create({
     height: 1,
   },
   input: {
-    height: 248,
-    paddingHorizontal: 18,
-    paddingVertical: 18,
+    height: 232,
+    paddingHorizontal: 22,
+    paddingVertical: 22,
     fontSize: 17,
     lineHeight: 25,
     fontFamily: "IBMPlexSans_500Medium",
@@ -368,9 +445,9 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   exampleChip: {
-    borderRadius: 18,
+    borderRadius: 20,
     borderWidth: 1,
-    paddingHorizontal: 12,
+    paddingHorizontal: 13,
     paddingVertical: 10,
     maxWidth: "100%",
   },
@@ -396,14 +473,15 @@ const styles = StyleSheet.create({
   },
   metricRow: {
     flexDirection: "row",
-    gap: 8,
+    gap: 10,
   },
   metricPill: {
     flex: 1,
-    borderRadius: 18,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    borderRadius: 22,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
     gap: 3,
+    borderWidth: 1,
   },
   metricValue: {
     fontSize: 18,
@@ -445,7 +523,7 @@ const styles = StyleSheet.create({
     fontFamily: "IBMPlexSans_500Medium",
   },
   listColumn: {
-    gap: 12,
+    gap: 14,
   },
   emptyTitle: {
     fontSize: 16,

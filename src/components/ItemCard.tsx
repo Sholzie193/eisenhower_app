@@ -21,6 +21,7 @@ export const ItemCard = ({ item, onPress }: ItemCardProps) => {
           triggerSelectionHaptic();
           onPress();
         }}
+        style={({ pressed }) => [{ transform: [{ scale: pressed ? 0.988 : 1 }] }]}
       >
         <NeuCard variant="raised" style={styles.card}>
           <View style={styles.topRow}>
@@ -34,18 +35,33 @@ export const ItemCard = ({ item, onPress }: ItemCardProps) => {
             {getItemSubtitle(item)}
           </Text>
           <View style={styles.bottomRow}>
-            <View style={[styles.scorePill, { backgroundColor: theme.colors.surfaceInset }]}>
+            <View
+              style={[
+                styles.scorePill,
+                { backgroundColor: theme.colors.surfaceInset, borderColor: theme.colors.stroke },
+              ]}
+            >
               <Text style={[styles.scoreText, { color: theme.colors.textMuted }]}>
                 U {item.urgencyScore.toFixed(1)}
               </Text>
             </View>
-            <View style={[styles.scorePill, { backgroundColor: theme.colors.surfaceInset }]}>
+            <View
+              style={[
+                styles.scorePill,
+                { backgroundColor: theme.colors.surfaceInset, borderColor: theme.colors.stroke },
+              ]}
+            >
               <Text style={[styles.scoreText, { color: theme.colors.textMuted }]}>
                 I {item.importanceScore.toFixed(1)}
               </Text>
             </View>
             {item.completed ? (
-              <View style={[styles.completePill, { backgroundColor: theme.colors.accentWash }]}>
+              <View
+                style={[
+                  styles.completePill,
+                  { backgroundColor: theme.colors.accentWash, borderColor: theme.colors.stroke },
+                ]}
+              >
                 <Text style={[styles.completeText, { color: theme.colors.success }]}>Complete</Text>
               </View>
             ) : null}
@@ -58,7 +74,7 @@ export const ItemCard = ({ item, onPress }: ItemCardProps) => {
 
 const styles = StyleSheet.create({
   card: {
-    gap: 10,
+    gap: 14,
   },
   topRow: {
     flexDirection: "row",
@@ -66,12 +82,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   title: {
-    fontSize: 15,
-    lineHeight: 21,
+    fontSize: 18,
+    lineHeight: 24,
     fontFamily: "IBMPlexSans_600SemiBold",
   },
   subtitle: {
     fontSize: 13,
+    lineHeight: 19,
     fontFamily: "IBMPlexSans_500Medium",
   },
   time: {
@@ -85,20 +102,22 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
   },
   scorePill: {
-    minHeight: 28,
+    minHeight: 30,
     borderRadius: 999,
-    paddingHorizontal: 10,
+    paddingHorizontal: 11,
     justifyContent: "center",
+    borderWidth: 1,
   },
   scoreText: {
     fontSize: 12,
     fontFamily: "IBMPlexSans_600SemiBold",
   },
   completePill: {
-    minHeight: 28,
+    minHeight: 30,
     borderRadius: 999,
-    paddingHorizontal: 10,
+    paddingHorizontal: 11,
     justifyContent: "center",
+    borderWidth: 1,
   },
   completeText: {
     fontSize: 12,

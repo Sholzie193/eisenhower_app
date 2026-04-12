@@ -1377,15 +1377,27 @@ const mergeMissingActionTexts = (primaryActionTexts: string[], fallbackActionTex
   const merged = [...primaryActionTexts];
   const keyIndex = new Map<string, number>();
 
+  const getMergeableTitle = (value: string) => {
+    const canonical = normalizeClarityTaskTitle(value);
+    if (canonical) {
+      return canonical;
+    }
+
+    const fallbackTitle = buildCandidateTitle(value);
+    return normalizeClarityTaskTitle(fallbackTitle);
+  };
+
   primaryActionTexts.forEach((actionText, index) => {
-    const key = getCanonicalClarityTaskKey(actionText) || buildCandidateTitle(actionText).toLowerCase();
+    const title = getMergeableTitle(actionText);
+    const key = title ? getCanonicalClarityTaskKey(title) || title.toLowerCase() : "";
     if (key && !keyIndex.has(key)) {
       keyIndex.set(key, index);
     }
   });
 
   fallbackActionTexts.forEach((actionText) => {
-    const key = getCanonicalClarityTaskKey(actionText) || buildCandidateTitle(actionText).toLowerCase();
+    const title = getMergeableTitle(actionText);
+    const key = title ? getCanonicalClarityTaskKey(title) || title.toLowerCase() : "";
     if (!key) {
       return;
     }
@@ -1517,7 +1529,8 @@ const collapseEquivalentActionTexts = (values: string[]) => {
       return;
     }
 
-    const title = normalizeClarityTaskTitle(cleaned) || buildCandidateTitle(cleaned);
+    const title =
+      normalizeClarityTaskTitle(cleaned) || normalizeClarityTaskTitle(buildCandidateTitle(cleaned));
     if (!title) {
       return;
     }

@@ -76,7 +76,7 @@ const joinTitles = (titles: string[]) => {
 
 const getConsideredBoard = (analysis: ClarityAnalysis) => {
   const rawTitles = analysis.structuredCleanup?.considered_items ?? analysis.candidates.map((candidate) => candidate.title);
-  const titles = dedupeBullets(rawTitles).slice(0, 5);
+  const titles = dedupeBullets(rawTitles);
   const hiddenCount = Math.max(0, rawTitles.length - titles.length);
   const context = dedupeBullets([...(analysis.structuredCleanup?.context_notes ?? []), ...analysis.contextHints]).slice(0, 2);
 
@@ -356,8 +356,8 @@ function ClarityResultScreen() {
   const { firstMove, question } = claritySession;
   void question;
   const consideredBoard = getConsideredBoard(claritySession);
-  const activeItems = getStillInPlayItems(claritySession).slice(0, 3);
-  const laterItems = getCanWaitItems(claritySession).slice(0, 3);
+  const activeItems = getStillInPlayItems(claritySession);
+  const laterItems = getCanWaitItems(claritySession);
   const whyThisFirst = getWhyThisFirstCopy(claritySession);
 
   return (

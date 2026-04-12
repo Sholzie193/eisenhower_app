@@ -59,6 +59,9 @@ const getRankCopy = (candidate: ClarityCandidate, index: number) => {
   }
 };
 
+const getRankDecisionLabel = (candidate: ClarityCandidate, index: number) =>
+  index === 0 ? "Do first" : candidate.triageResult.recommendation;
+
 export function ClarityV1Result() {
   const { claritySession, clearClarity, saveClarityCandidate, saveClarityCandidates, startDraft } = useAppData();
   const { theme } = useAppTheme();
@@ -137,8 +140,10 @@ export function ClarityV1Result() {
       </View>
 
       <View style={styles.titleBlock}>
-        <Text style={[styles.title, { color: theme.colors.text }]}>Clearer next step</Text>
-        <Text style={[styles.subtitle, { color: theme.colors.textMuted }]}>{claritySession.summary}</Text>
+        <Text style={[styles.title, { color: theme.colors.text }]}>Ranked board</Text>
+        <Text style={[styles.subtitle, { color: theme.colors.textMuted }]}>
+          {claritySession.summary} Every extracted task below is ranked and given its own lane.
+        </Text>
       </View>
 
       <NeuCard variant="flat" style={styles.sectionCard}>
@@ -167,7 +172,7 @@ export function ClarityV1Result() {
       </NeuCard>
 
       <NeuCard style={styles.heroCard}>
-        <Text style={[styles.label, { color: theme.colors.textSoft }]}>Clearest next move</Text>
+        <Text style={[styles.label, { color: theme.colors.textSoft }]}>Top-ranked first move</Text>
         <Text style={[styles.primaryTitle, { color: theme.colors.text }]}>{firstMove.title}</Text>
         <Text style={[styles.body, { color: theme.colors.textMuted }]}>
           {firstMove.triageResult.recommendation}
@@ -183,9 +188,9 @@ export function ClarityV1Result() {
       </NeuCard>
 
       <NeuCard variant="flat" style={styles.sectionCard}>
-        <Text style={[styles.label, { color: theme.colors.textSoft }]}>Full order right now</Text>
+        <Text style={[styles.label, { color: theme.colors.textSoft }]}>Ranked decisions</Text>
         <Text style={[styles.meta, { color: theme.colors.textSoft }]}>
-          Ranked by urgency, importance, cost of delay, and energy fit, with the lead move first.
+          Every extracted task is ranked by urgency, importance, cost of delay, and energy fit.
         </Text>
         {rankedCandidates.length ? (
           <View style={styles.rankingList}>
@@ -221,8 +226,14 @@ export function ClarityV1Result() {
                   <Text style={[styles.rankLane, { color: theme.colors.textSoft }]}>
                     {getRankLane(candidate, index)}
                   </Text>
+                  <Text style={[styles.rankDecision, { color: theme.colors.text }]}>
+                    {getRankDecisionLabel(candidate, index)}
+                  </Text>
                   <Text style={[styles.rowCopy, { color: theme.colors.textMuted }]}>
                     {getRankCopy(candidate, index)}
+                  </Text>
+                  <Text style={[styles.rankNextStep, { color: theme.colors.textMuted }]}>
+                    {candidate.triageResult.nextStep}
                   </Text>
                 </View>
               </View>
@@ -415,5 +426,15 @@ const styles = StyleSheet.create({
     fontFamily: "IBMPlexSans_600SemiBold",
     textTransform: "uppercase",
     letterSpacing: 0.8,
+  },
+  rankDecision: {
+    fontSize: 16,
+    lineHeight: 22,
+    fontFamily: "IBMPlexSans_600SemiBold",
+  },
+  rankNextStep: {
+    fontSize: 13,
+    lineHeight: 19,
+    fontFamily: "IBMPlexSans_500Medium",
   },
 });

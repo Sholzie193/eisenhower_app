@@ -36,7 +36,7 @@ const AI_ACTION_VERB_PATTERNS = [
 ];
 
 const AI_OPTION_NOUN_PATTERNS = [
-  /\b(?:proposal|invoice|contract|email|website|rent|landlord|meeting|clients?|client|lead|timing|outreach|cold email|cold calling|call|rest|break|approval|slides?|receipts?|bookkeeping|hero section|homepage|case study|crm|tags|faq|link|widget|explainer|onboarding)\b/i,
+  /\b(?:proposal|proposal deck|deck prep|invoice|contract|email|website|rent|landlord|meeting|appointment|doctor|tax(?:es)?|clients?|client|lead|timing|outreach|cold email|cold calling|call|rest|break|approval|slides?|receipts?|bookkeeping|hero section|homepage|case study|crm|tags|faq|link|widget|explainer|onboarding)\b/i,
 ];
 
 const toSentenceCase = (value: string) => value.charAt(0).toUpperCase() + value.slice(1);
@@ -63,7 +63,7 @@ const stripOrdinalListPrefix = (value: string) =>
 const stripAiMetaLead = (value: string) =>
   value
     .replace(
-      /^(?:(?:help me|i need help)\s+(?:sort|sorting|rank|ranking)\b[^:]*:|the real options are|real options are|the options are|actually handle first|actually do first|handle first|do first|what should (?:i\s+)?actually do first(?:,?\s*what should come second,?\s*and?\s*what can wait)?|what should come second|what can wait|what should wait|what to do (?:now|next|first)|which is the cleaner move|which is the clearer shape|this looks like the move|this looks like the clearer option|here(?:['’]?)s the cleaner option|here(?:['’]?)s the clearer shape|best next move|best first option|clearest next move|clearest next step|decision)\s*[:,-]?\s*/i,
+      /^(?:(?:help me|i need help)\s+(?:sort|sorting|rank|ranking)\b[^:]*:|(?:also\s+)?shipping\s+this|(?:also\s+)?on\s+the\s+board|(?:also\s+)?in\s+play|also\s+handling|the real options are|real options are|the options are|actually handle first|actually do first|handle first|do first|what should (?:i\s+)?actually do first(?:,?\s*what should come second,?\s*and?\s*what can wait)?|what should come second|what can wait|what should wait|what to do (?:now|next|first)|which is the cleaner move|which is the clearer shape|this looks like the move|this looks like the clearer option|here(?:['’]?)s the cleaner option|here(?:['’]?)s the clearer shape|best next move|best first option|clearest next move|clearest next step|decision)\s*[:,-]?\s*/i,
       ""
     )
     .replace(/^(?:and|but|so|also|then)\s+/i, "")

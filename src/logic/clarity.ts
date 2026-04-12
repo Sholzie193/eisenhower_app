@@ -41,6 +41,9 @@ interface ReasonFactor {
   explanation: string;
 }
 
+const MAX_CLARITY_BOARD_ITEMS = 10;
+const MAX_CLARITY_GROUP_ITEMS = 8;
+
 const FOG_PHRASES = [
   "don't know",
   "dont know",
@@ -1070,6 +1073,12 @@ const splitPromptSentences = (rawInput: string) =>
     .map((segment) => trimLeadingConnector(segment.trim()))
     .filter(Boolean);
 
+const splitShorthandTaskFragments = (rawInput: string) =>
+  splitPromptSentences(rawInput)
+    .flatMap((segment) => segment.split(/\s*(?:\/|\|)\s*/))
+    .map(cleanCandidate)
+    .filter(Boolean);
+
 const splitSupportClauses = (rawInput: string) =>
   splitPromptSentences(rawInput)
     .flatMap((segment) => segment.split(/,\s+|\s+\band\b\s+(?=(?:the|this|that|it)\b)/i))
@@ -1430,7 +1439,7 @@ const preserveMeaningfulMultiTaskBoard = (
 ) => {
   if (selectedDecisionGroupId) {
     return {
-      candidateTexts: mergedCandidateTexts.slice(0, 5),
+      candidateTexts: mergedCandidateTexts.slice(0, MAX_CLARITY_BOARD_ITEMS),
       preservedFromFullInput: false,
       fullBoardCandidateTexts: mergedCandidateTexts,
     };
@@ -1443,14 +1452,14 @@ const preserveMeaningfulMultiTaskBoard = (
 
   if (fullBoardCandidateTexts.length >= 2 && mergedCandidateTexts.length < fullBoardCandidateTexts.length) {
     return {
-      candidateTexts: fullBoardCandidateTexts.slice(0, 5),
+      candidateTexts: fullBoardCandidateTexts.slice(0, MAX_CLARITY_BOARD_ITEMS),
       preservedFromFullInput: true,
       fullBoardCandidateTexts,
     };
   }
 
   return {
-    candidateTexts: mergedCandidateTexts.slice(0, 5),
+    candidateTexts: mergedCandidateTexts.slice(0, MAX_CLARITY_BOARD_ITEMS),
     preservedFromFullInput: false,
     fullBoardCandidateTexts,
   };
@@ -1710,7 +1719,7 @@ const detectDecisionGroups = (rawInput: string): ClarityDecisionGroup[] =>
         hasExplicitCompareScaffold(segment) ||
         (relationship === "alternatives" && candidateTexts.length <= 2);
 
-      if (!isDecisionSegment || candidateTexts.length < 1 || candidateTexts.length > 4) {
+      if (!isDecisionSegment || candidateTexts.length < 1 || candidateTexts.length > MAX_CLARITY_GROUP_ITEMS) {
         return null;
       }
 
@@ -1791,11 +1800,22 @@ const extractCandidateTexts = (rawInput: string) => {
     }
   }
 
-  if (isParagraphLikeInput(normalized)) {
-    const extractedActions = extractActionClauses(normalized);
-    if (extractedActions.length > 1) {
-      return extractedActions;
-    }
+  const paragraphActions = isParagraphLikeInput(normalized) ? extractActionClauses(normalized) : [];
+
+  const shorthandFragments = dedupe(splitShorthandTaskFragments(normalized));
+  const shorthandRelationship = inferCandidateRelationship(normalized, shorthandFragments);
+  const eligibleShorthandFragments = filterEligibleCandidates(
+    shorthandFragments,
+    normalized,
+    shorthandRelationship
+  );
+
+  if (eligibleShorthandFragments.length > 1 && eligibleShorthandFragments.length >= paragraphActions.length) {
+    return eligibleShorthandFragments;
+  }
+
+  if (paragraphActions.length > 1) {
+    return paragraphActions;
   }
 
   const delimiterSplit = normalized

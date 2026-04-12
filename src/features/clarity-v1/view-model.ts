@@ -160,7 +160,7 @@ export const buildClarityV1Analysis = (
   rawInput: string,
   result: ClarityV1Result
 ): ClarityAnalysis => {
-  const boardTitles = dedupeStrings(result.considered_items).slice(0, 5);
+  const boardTitles = dedupeStrings(result.considered_items).slice(0, 10);
 
   if (!boardTitles.length) {
     return createClarityV1Failure(rawInput);

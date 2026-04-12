@@ -8,6 +8,7 @@ export const CLARITY_V1_PROMPT = [
   "Use imperative action titles when possible, such as 'Reply to client today' or 'Update services page'.",
   "Keep every explicit real task, even if it seems less important. Lower priority tasks should still stay on the board.",
   "If the user explicitly lists five real actions, return five board items. Do not compress the board just to keep it short.",
+  "Do not truncate the board to five items when the input clearly contains more real tasks or obligations.",
   "When two items are different real actions involving the same person or project, keep both instead of merging them.",
   "Strip filler wording like 'the same', 'I need to', 'outside of client work', and reflective framing from item titles.",
   "Never return the user's request to sort, rank, compare, or avoid dropping the board as a board item.",

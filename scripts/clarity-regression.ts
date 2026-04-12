@@ -186,6 +186,42 @@ const cases: RegressionCase[] = [
       "Rewrite hero section on homepage",
     ],
   },
+  {
+    name: "larger-seven-item-board",
+    prompt:
+      "I need help sorting a fuller board without losing tasks. I can send the revised proposal to a client today, follow up on an overdue invoice, fix a broken contact form on my website, prepare notes for tomorrow's meeting, organize project files before a handoff, update the FAQ on my site, and reconcile recent expenses. I want the clearest next move, but I still need every real task to stay on the board.",
+    requiredTitles: [
+      "Send revised proposal",
+      "Follow up on overdue invoice",
+      "Fix contact form",
+      "Prepare notes for tomorrow's meeting",
+      "Organize files",
+      "Update FAQ on site",
+      "Reconcile recent expenses",
+    ],
+    allowedFirstTitles: [
+      "Send revised proposal",
+      "Follow up on overdue invoice",
+      "Fix contact form",
+    ],
+  },
+  {
+    name: "slash-shorthand-board",
+    prompt:
+      "Respond to colleague's proposal today. Also shipping this: Doctor's appointment tasks & follow / Taxes are definitely overdue by a month / Proposal deck prep is due first.",
+    requiredTitles: [
+      "Respond to colleague's proposal today",
+      "Handle doctor's appointment follow-up",
+      "Handle overdue taxes",
+      "Prepare proposal deck",
+    ],
+    allowedFirstTitles: [
+      "Respond to colleague's proposal today",
+      "Handle doctor's appointment follow-up",
+      "Handle overdue taxes",
+      "Prepare proposal deck",
+    ],
+  },
 ];
 
 const INVALID_TITLE_PATTERNS = [

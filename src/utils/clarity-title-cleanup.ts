@@ -24,6 +24,7 @@ const META_ONLY_PATTERNS = [
 const TITLE_PREFIX_PATTERNS = [
   /^\s*(?:\((?:[1-9])\)|[1-9][.:]|(?:first|second|third|fourth|fifth|one|two|three|four|five))[,:-]?\s*/i,
   /^\s*(?:here(?:['’]s| is)|these are)\s+/i,
+  /^\s*(?:also\s+shipping\s+this|shipping\s+this|also\s+on\s+the\s+board|also\s+in\s+play|also\s+handling|still\s+on\s+the\s+board)\s*:\s*/i,
   /^\s*(?:help me|i need help)\s+(?:sort|sorting|rank|ranking)\b[^:]*:\s*/i,
   /^\s*(?:i|we)\s+(?:need|have)\s+to\s+do\s+(?:one|two|three|four|five|several|a\s+few|\d+)?\s*things:\s*/i,
   /^\s*(?:i|we)\s+(?:need|have)\s+to\s+handle\s+(?:one|two|three|four|five|several|a\s+few|\d+)?\s*things:\s*/i,
@@ -196,6 +197,22 @@ const OBJECT_CANONICAL_RULES: Array<{ pattern: RegExp; title: string }> = [
   {
     pattern: /\b(?:review|check)\b.*\bcontract\b.*\bsend(?:ing)?\s+it\s+back\b/i,
     title: "Review contract before sending back",
+  },
+  {
+    pattern: /\b(?:doctor'?s?\s+appointment|appointment)\b.*\b(?:follow|follow[- ]?up|tasks?)\b/i,
+    title: "Handle doctor's appointment follow-up",
+  },
+  {
+    pattern: /\btax(?:es)?\b.*\b(?:overdue|past\s+due|due)\b/i,
+    title: "Handle overdue taxes",
+  },
+  {
+    pattern: /\b(?:proposal\s+deck|deck\s+prep)\b.*\b(?:prep|due|first)\b/i,
+    title: "Prepare proposal deck",
+  },
+  {
+    pattern: /\bproposal\s+deck\b/i,
+    title: "Prepare proposal deck",
   },
   {
     pattern: /\b(?:edit|finish|polish|publish)\b.*\btestimonial\b.*\bvideo\b/i,
@@ -573,6 +590,9 @@ const DEDUPE_SIGNATURE_RULES: Array<{ pattern: RegExp; key: string }> = [
   { pattern: /\bsignup\b.*\b(?:issue|flow|form)\b/i, key: "fix|signup|issue" },
   { pattern: /\b(?:publish|post|ship)\b.*\bcontent\b/i, key: "publish|content" },
   { pattern: /\b(?:review|check)\b.*\bcontract\b.*\bsend(?:ing)?\s+it\s+back\b/i, key: "review|contract|sendback" },
+  { pattern: /\b(?:doctor'?s?\s+appointment|appointment)\b.*\b(?:follow|follow[- ]?up|tasks?)\b/i, key: "handle|appointment|followup" },
+  { pattern: /\btax(?:es)?\b.*\b(?:overdue|pastdue|due)\b/i, key: "handle|tax|overdue" },
+  { pattern: /\b(?:proposal\s+deck|deck\s+prep)\b/i, key: "prepare|proposal|deck" },
   { pattern: /\bfaq\b/i, key: "update|faq" },
   { pattern: /\bpartner\b.*\bdecision\b/i, key: "reply|partner|decision" },
   { pattern: /\bpayment\s+link\b/i, key: "troubleshoot|payment|link" },
@@ -845,6 +865,7 @@ const looksLikeRejectedFragment = (value: string) =>
   !value ||
   META_ONLY_PATTERNS.some((pattern) => pattern.test(value)) ||
   CONSEQUENCE_ONLY_PATTERNS.some((pattern) => pattern.test(value)) ||
+  /\bmatters?\b/i.test(value) ||
   /\bmatters?\s+(?:because|since|as)\b/i.test(value) ||
   /^(?:i|we)\b/i.test(value) ||
   /^(?:reply|respond)\s+from\s+me\b/i.test(value) ||

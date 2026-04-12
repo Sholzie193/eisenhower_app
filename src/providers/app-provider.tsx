@@ -60,6 +60,29 @@ const normalizeDraft = (draft?: Partial<DraftDecision>): DraftDecision => ({
   },
 });
 
+const choosePreferredClaritySession = (
+  structuredSession: ClarityAnalysis | null,
+  localSession: ClarityAnalysis
+) => {
+  if (!structuredSession || structuredSession.status !== "ready") {
+    return localSession;
+  }
+
+  if (localSession.status !== "ready") {
+    return structuredSession;
+  }
+
+  const structuredCount = structuredSession.candidates.length;
+  const localCount = localSession.candidates.length;
+
+  // Fall back when the AI-cleaned board is materially smaller than the deterministic parse.
+  if ((structuredCount <= 1 && localCount >= 2) || localCount >= structuredCount + 2) {
+    return localSession;
+  }
+
+  return structuredSession;
+};
+
 export const AppProvider = ({ children }: PropsWithChildren) => {
   const [items, setItems] = useState<DecisionItem[]>([]);
   const [draft, setDraft] = useState<DraftDecision | null>(null);
@@ -209,10 +232,8 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
     const structuredSession = aiResult
       ? analyzeStructuredClarityInput(normalizedInput, aiResult)
       : null;
-    const nextSession =
-      structuredSession && structuredSession.status === "ready"
-        ? structuredSession
-        : analyzeClarityInput(normalizedInput);
+    const localSession = analyzeClarityInput(normalizedInput);
+    const nextSession = choosePreferredClaritySession(structuredSession, localSession);
     setClaritySession(nextSession);
     return nextSession;
   };

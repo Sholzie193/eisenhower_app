@@ -183,11 +183,17 @@ const splitCombinedDecisionItem = (value: string) => {
     return [];
   }
 
-  const sentenceChunks = stripped
-    .replace(/review and approve/gi, "review & approve")
-    .split(ACTION_SENTENCE_SPLIT_PATTERN)
+  const slashChunks = stripped
+    .split(/\s*(?:\/|\|)\s*/)
     .map((entry) => trimLeadingConnector(entry.trim()))
     .filter(Boolean);
+  const sentenceChunks = (slashChunks.length > 1 ? slashChunks : [stripped]).flatMap((entry) =>
+    entry
+      .replace(/review and approve/gi, "review & approve")
+      .split(ACTION_SENTENCE_SPLIT_PATTERN)
+      .map((chunk) => trimLeadingConnector(chunk.trim()))
+      .filter(Boolean)
+  );
   const splitChunks = sentenceChunks.flatMap((entry) =>
     ACTION_SPLIT_PATTERN.test(protectCompoundActionPairs(entry))
       ? protectCompoundActionPairs(entry).split(ACTION_SPLIT_PATTERN).map(restoreCompoundActionPairs)
@@ -195,6 +201,10 @@ const splitCombinedDecisionItem = (value: string) => {
   );
 
   if (splitChunks.length <= 1) {
+    if (slashChunks.length > 1) {
+      return slashChunks;
+    }
+
     return [];
   }
 
@@ -224,11 +234,11 @@ export const normalizeClarityV1Result = (value: unknown): ClarityV1Result | null
 
   const payload = value as Record<string, unknown>;
   const considered = dedupeCanonicalClarityTitles(
-    trimStringArray(payload.considered_items, 8).flatMap(toUsableItems)
-  ).slice(0, 8);
+    trimStringArray(payload.considered_items, MAX_CONSIDERED_ITEMS).flatMap(toUsableItems)
+  ).slice(0, MAX_CONSIDERED_ITEMS);
   const contextNotes = dedupeStrings(
-    trimStringArray(payload.context_notes, 5).map(sanitizeContextNote).filter(Boolean)
-  ).slice(0, 5);
+    trimStringArray(payload.context_notes, MAX_CONTEXT_NOTES).map(sanitizeContextNote).filter(Boolean)
+  ).slice(0, MAX_CONTEXT_NOTES);
   const decisionType =
     payload.decision_type === "single_task" ||
     payload.decision_type === "option_choice" ||
@@ -238,6 +248,7 @@ export const normalizeClarityV1Result = (value: unknown): ClarityV1Result | null
       : undefined;
   const decisionGroups = Array.isArray(payload.decision_groups)
     ? payload.decision_groups
+        .slice(0, MAX_DECISION_GROUPS)
         .map((group, index) => {
           if (!group || typeof group !== "object") {
             return null;
@@ -245,8 +256,8 @@ export const normalizeClarityV1Result = (value: unknown): ClarityV1Result | null
 
           const maybeGroup = group as Record<string, unknown>;
           const items = dedupeCanonicalClarityTitles(
-            trimStringArray(maybeGroup.items, 6).flatMap(toUsableItems)
-          ).slice(0, 6);
+            trimStringArray(maybeGroup.items, MAX_GROUP_ITEMS).flatMap(toUsableItems)
+          ).slice(0, MAX_GROUP_ITEMS);
           const relationship =
             maybeGroup.candidate_relationship === "alternatives" ? "alternatives" : "tasks";
           const rawLabel = typeof maybeGroup.label === "string" ? maybeGroup.label : "";
@@ -281,7 +292,7 @@ export const normalizeClarityV1Result = (value: unknown): ClarityV1Result | null
   const fullBoard = dedupeCanonicalClarityTitles([
     ...considered,
     ...decisionGroups.flatMap((group) => group.items),
-  ]).slice(0, 8);
+  ]).slice(0, MAX_CONSIDERED_ITEMS);
 
   if (!fullBoard.length) {
     return null;
@@ -294,3 +305,7 @@ export const normalizeClarityV1Result = (value: unknown): ClarityV1Result | null
     ...(decisionGroups.length ? { decision_groups: decisionGroups } : {}),
   };
 };
+const MAX_CONSIDERED_ITEMS = 10;
+const MAX_CONTEXT_NOTES = 5;
+const MAX_GROUP_ITEMS = 8;
+const MAX_DECISION_GROUPS = 8;
